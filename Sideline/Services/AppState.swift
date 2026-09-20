@@ -48,6 +48,43 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Removes leftover ScreenshotDemo franchise/proposals so normal sync uses a real MFL link.
+    func purgeScreenshotDemoIfNeeded(context: ModelContext) {
+        modelContext = context
+        let demoId = ScreenshotDemo.demoLeagueId
+        let links = (try? context.fetch(FetchDescriptor<LinkedFranchise>())) ?? []
+        var purgedLink = false
+        for link in links where link.leagueId == demoId {
+            context.delete(link)
+            purgedLink = true
+        }
+        if purgedLink {
+            let proposals = (try? context.fetch(FetchDescriptor<ActionProposal>())) ?? []
+            for proposal in proposals {
+                let proposalId = proposal.id
+                let threads = (try? context.fetch(
+                    FetchDescriptor<AgentChatThread>(predicate: #Predicate { $0.proposalId == proposalId })
+                )) ?? []
+                for thread in threads { context.delete(thread) }
+                context.delete(proposal)
+            }
+            try? context.save()
+            if linkedFranchise?.leagueId == demoId {
+                linkedFranchise = nil
+                team = nil
+                leagueReview = nil
+                pendingCount = 0
+                agentActivityLines = []
+                agentActivityStatus = nil
+                agentRunTitle = nil
+            }
+        }
+        if linkedFranchise == nil {
+            linkedFranchise = try? context.fetch(FetchDescriptor<LinkedFranchise>()).first
+        }
+        refreshPendingCount()
+    }
+
     func saveGuardrails() {
         GuardrailEngine.save(guardrails)
     }
@@ -404,6 +441,8 @@ final class AppState: ObservableObject {
         if let position, !position.isEmpty {
             scoreExtra["POSITION"] = position.uppercased()
         }
+        let ytdExtra = scoreExtra.merging(["W": "YTD"]) { _, new in new }
+        let lastWeekExtra = scoreExtra.merging(["W": String(lastWeek)]) { _, new in new }
 
         async let playersData = try? await MFLClient.shared.exportJSON(
             host: linked.host,
@@ -418,7 +457,7 @@ final class AppState: ObservableObject {
             season: linked.season,
             type: "playerScores",
             leagueId: linked.leagueId,
-            extra: scoreExtra.merging(["W": "YTD"]) { _, new in new },
+            extra: ytdExtra,
             cacheTTL: 180
         )
         async let lastWeekData = try? await MFLClient.shared.exportJSON(
@@ -426,7 +465,7 @@ final class AppState: ObservableObject {
             season: linked.season,
             type: "playerScores",
             leagueId: linked.leagueId,
-            extra: scoreExtra.merging(["W": String(lastWeek)]) { _, new in new },
+            extra: lastWeekExtra,
             cacheTTL: 180
         )
         async let projectionsData = try? await MFLClient.shared.exportJSON(
@@ -594,11 +633,11 @@ final class AppState: ObservableObject {
         }
 
         let linked = LinkedFranchise(
-            leagueId: "99999",
+            leagueId: ScreenshotDemo.demoLeagueId,
             leagueName: "Sideline Classic",
             franchiseId: "0001",
             franchiseName: "Farish FC",
-            host: "www64.myfantasyleague.com",
+            host: ScreenshotDemo.demoHost,
             season: 2025
         )
         context.insert(linked)

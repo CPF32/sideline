@@ -4,6 +4,9 @@ import SwiftData
 /// Launch-arg helpers for App Store marketing screenshots.
 /// Pass `-ScreenshotDemo` and optionally `-ScreenshotTab <team|league|agents|approvals|settings>`.
 enum ScreenshotDemo {
+    static let demoLeagueId = "99999"
+    static let demoHost = "www64.myfantasyleague.com"
+
     static var isEnabled: Bool {
         ProcessInfo.processInfo.arguments.contains("-ScreenshotDemo")
     }
@@ -24,10 +27,15 @@ enum ScreenshotDemo {
 
     @MainActor
     static func applyIfNeeded(appState: AppState, context: ModelContext) {
-        guard isEnabled else { return }
-        appState.applyScreenshotDemo(context: context)
-        if let tab = preferredTab {
-            appState.selectedTab = tab
+        if isEnabled {
+            appState.applyScreenshotDemo(context: context)
+            if let tab = preferredTab {
+                appState.selectedTab = tab
+            }
+            return
         }
+        // Simulator screenshot runs persist a fake franchise — wipe it on normal launches
+        // so sync never hits a non-resolvable demo host.
+        appState.purgeScreenshotDemoIfNeeded(context: context)
     }
 }
