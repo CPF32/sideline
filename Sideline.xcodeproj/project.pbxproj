@@ -53,7 +53,7 @@
 		0568A640E69116D5E6BD365A /* MFLClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MFLClient.swift; sourceTree = "<group>"; };
 		07F9890C029DADC2E9FDBE61 /* RosterPositionGrouping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RosterPositionGrouping.swift; sourceTree = "<group>"; };
 		09EAAFB9523BEEC189FAC912 /* SettingsDetailPages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsDetailPages.swift; sourceTree = "<group>"; };
-		10CD784DBD346AEBE64DD90B /* Sideline.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Sideline.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		10CD784DBD346AEBE64DD90B /* Sideline.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Sideline.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1FB7BB4BDA28451CA994C2A1 /* Sideline.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Sideline.entitlements; sourceTree = "<group>"; };
 		2819AF9BABFCABC9FD0BD27E /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		2880B065585DEF7771699878 /* LeagueStrengthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeagueStrengthService.swift; sourceTree = "<group>"; };
@@ -221,7 +221,6 @@
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					1C9B3056EDB5A135C3C0DCBD = {
-						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -312,7 +311,7 @@
 				CODE_SIGN_ENTITLEMENTS = Sideline/Sideline.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = UV23JAL4TD;
 				INFOPLIST_FILE = Sideline/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Sideline;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Sideline uses the camera to scan an API key from a QR code or on-screen text.";
@@ -409,7 +408,7 @@
 				CODE_SIGN_ENTITLEMENTS = Sideline/Sideline.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = UV23JAL4TD;
 				INFOPLIST_FILE = Sideline/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Sideline;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Sideline uses the camera to scan an API key from a QR code or on-screen text.";

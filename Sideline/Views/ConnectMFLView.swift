@@ -69,7 +69,7 @@ struct ConnectMFLView: View {
                 .foregroundStyle(BrandTheme.ink)
             Text(
                 step == .credentials
-                ? "Password is used once for a session cookie. Sideline never writes to MFL until you Approve."
+                ? "Sign in with your myfantasyleague.com username and password (same account as the MFL app). Sideline stores a session cookie so Approve can write lineups to MFL."
                 : "Pick the league and franchise Sideline should manage."
             )
             .font(BrandTheme.body(14))

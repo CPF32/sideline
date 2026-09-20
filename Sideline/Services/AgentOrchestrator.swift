@@ -128,12 +128,17 @@ enum AgentOrchestrator {
         report("\(desk.agentName) — parsing model response")
         var drafts = try parseProposals(raw, kind: kind, agentName: desk.agentName, week: team.week)
         if kind == .lineup, let feasibility, !feasibility.canAutoSet {
-            let hasBlocked = drafts.contains { draft in
+            // Drop any "can auto-set" drafts when feasibility says no — Approve must not be offered.
+            drafts = drafts.filter { draft in
                 (try? JSONDecoder().decode(LineupPayload.self, from: Data(draft.payloadJSON.utf8)))?.canAutoSet == false
             }
-            if !hasBlocked {
-                drafts.insert(LineupFeasibility.blockedProposal(team: team, report: feasibility), at: 0)
+            if drafts.isEmpty {
+                drafts = [LineupFeasibility.blockedProposal(team: team, report: feasibility)]
             }
+        }
+        // Enrich lineup drafts with resolved slot/name when model omitted slots.
+        if kind == .lineup {
+            drafts = drafts.map { enrichLineupSlots($0, team: team) }
         }
         report("\(desk.agentName) — checking guardrails on \(drafts.count) draft(s)")
         let allowed = drafts.filter { GuardrailEngine.allows(draft: $0, settings: guardrails, team: team) }
@@ -185,7 +190,8 @@ enum AgentOrchestrator {
             - Keep taxi usage within taxi slot limits; do not start taxi players unless the league allows and they are activated.
             - Never leave required starter slots empty when eligible upcoming players are available on the active roster.
             - When auto-setting is possible, payload MUST be:
-              {"week":\(week),"starterIds":[playerId…],"irIds":[playerId…]?,"taxiIds":[playerId…]?,"canAutoSet":true,"comments":string?}
+              {"week":\(week),"starterIds":[playerId…],"irIds":[playerId…]?,"taxiIds":[playerId…]?,"canAutoSet":true,"comments":string?,"slots":[{"slot":"QB","playerId":"…","name":"…","reason":"why this player for this slot"},…]}
+            - `slots` is REQUIRED when canAutoSet is true: one entry per starting slot (match league starter rules including flex). Each reason should be one short sentence (matchup, projection, injury avoidance).
             - Prefer projected points among eligible (upcoming) players unless criteria say otherwise.
             """
         case .waiver:
@@ -301,6 +307,71 @@ enum AgentOrchestrator {
             if seen.insert(key).inserted { out.append(d) }
         }
         return out
+    }
+
+    /// Fill missing `slots` from starterIds + roster so Approvals can show who/why per position.
+    private static func enrichLineupSlots(_ draft: AgentProposalDraft, team: TeamSnapshot) -> AgentProposalDraft {
+        guard var payload = try? JSONDecoder().decode(LineupPayload.self, from: Data(draft.payloadJSON.utf8)) else {
+            return draft
+        }
+        guard payload.isAutoSettable, !payload.starterIds.isEmpty else { return draft }
+        if let existing = payload.slots, !existing.isEmpty { return draft }
+
+        let byId = Dictionary(uniqueKeysWithValues: team.allRostered.map { ($0.playerId, $0) })
+        var remaining = payload.starterIds
+        var picks: [LineupSlotPick] = []
+
+        func take(allowed: Set<String>, slot: String) {
+            guard let idx = remaining.firstIndex(where: { id in
+                let p = byId[id] ?? byId[MFLNameResolver.normalizePlayerId(id)]
+                return allowed.contains((p?.position ?? "").uppercased())
+            }) else { return }
+            let id = remaining.remove(at: idx)
+            let p = byId[id] ?? byId[MFLNameResolver.normalizePlayerId(id)]
+            let proj = p?.projectedPoints.map { String(format: "%.1f proj", $0) } ?? "roster pick"
+            let opp = p?.opponent.map { " vs \($0)" } ?? ""
+            picks.append(LineupSlotPick(
+                slot: slot,
+                playerId: id,
+                name: p?.name,
+                reason: "\(proj)\(opp)"
+            ))
+        }
+
+        let slots = team.leagueRules?.starterSlots ?? []
+        for slot in slots where !slot.name.contains("/") {
+            for _ in 0..<max(slot.min, 1) {
+                take(allowed: [slot.name.uppercased()], slot: slot.name.uppercased())
+            }
+        }
+        for slot in slots where slot.name.contains("/") {
+            let allowed = Set(slot.name.split(separator: "/").map { String($0).uppercased() })
+            for _ in 0..<max(slot.min, 1) {
+                take(allowed: allowed, slot: slot.name.uppercased())
+            }
+        }
+        for id in remaining {
+            let p = byId[id] ?? byId[MFLNameResolver.normalizePlayerId(id)]
+            picks.append(LineupSlotPick(
+                slot: (p?.position.uppercased()).flatMap { $0.isEmpty ? nil : $0 } ?? "START",
+                playerId: id,
+                name: p?.name,
+                reason: draft.summary
+            ))
+        }
+        payload.slots = picks
+        payload.canAutoSet = true
+        guard let data = try? JSONEncoder().encode(payload),
+              let json = String(data: data, encoding: .utf8) else { return draft }
+        return AgentProposalDraft(
+            kind: draft.kind,
+            title: draft.title,
+            summary: draft.summary,
+            rationale: draft.rationale,
+            risks: draft.risks,
+            payloadJSON: json,
+            agentName: draft.agentName
+        )
     }
 }
 

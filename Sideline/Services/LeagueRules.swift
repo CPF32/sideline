@@ -10,6 +10,8 @@ struct LeagueRules: Hashable, Codable {
     var starterSlots: [StarterSlot]
     var usesSalaries: Bool = false
     var salaryCapAmount: Double?
+    var startWeek: Int?
+    var endWeek: Int?
     var rawNotes: String?
 
     struct StarterSlot: Hashable, Codable, Identifiable {
@@ -51,6 +53,11 @@ struct LeagueRules: Hashable, Codable {
         let taxi = intValue(league["taxiSquad"])
         let usesSalaries = boolish(league["usesSalaries"])
         let salaryCap = doubleValue(league["salaryCapAmount"])
+        let startWeek = intValue(league["startWeek"]) ?? intValue(league["firstRegularSeasonWeek"])
+        let endWeek = intValue(league["endWeek"])
+            ?? intValue(league["lastRegularSeasonWeek"])
+            ?? intValue(league["playoffEndWeek"])
+            ?? intValue(league["maxWeek"])
 
         var slots: [StarterSlot] = []
         var total: Int?
@@ -81,6 +88,8 @@ struct LeagueRules: Hashable, Codable {
             starterSlots: slots,
             usesSalaries: usesSalaries || salaryCap != nil,
             salaryCapAmount: salaryCap,
+            startWeek: startWeek,
+            endWeek: endWeek,
             rawNotes: notes.isEmpty ? nil : notes.joined(separator: "; ")
         )
     }

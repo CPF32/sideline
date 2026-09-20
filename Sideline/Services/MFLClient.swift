@@ -7,6 +7,8 @@ enum MFLError: LocalizedError {
     case rateLimited
     case decode(String)
     case notConnected
+    case notLoggedIn
+    case lineupBlocked(String)
     case invalidResponse
 
     var errorDescription: String? {
@@ -17,6 +19,8 @@ enum MFLError: LocalizedError {
         case .rateLimited: return "MFL rate limited (429). Wait a moment and try again."
         case .decode(let m): return "Could not parse MFL data: \(m)"
         case .notConnected: return "Connect an MFL league first."
+        case .notLoggedIn: return "MFL session expired. Reconnect under Settings → Connect MFL."
+        case .lineupBlocked(let m): return m
         case .invalidResponse: return "Unexpected MFL response."
         }
     }
@@ -63,26 +67,45 @@ actor MFLClient {
         let (data, response) = try await perform(request, useCache: false, cacheTTL: 0)
         guard let http = response as? HTTPURLResponse else { throw MFLError.invalidResponse }
 
-        if let header = http.value(forHTTPHeaderField: "Set-Cookie"),
-           let match = header.split(separator: ";").first,
-           match.lowercased().contains("mfl_user_id") {
-            let value = match.split(separator: "=").dropFirst().joined(separator: "=")
-            setCookie(String(value))
-            KeychainStore.set(username, for: .mflUsername)
-            return
-        }
-
-        // Fallback: parse XML for cookie attribute
-        let text = String(data: data, encoding: .utf8) ?? ""
-        if text.lowercased().contains("error") {
-            throw MFLError.loginFailed(text.strippingTags.prefix(180).description)
-        }
-        if let cookieValue = text.mflCookieValue {
+        if let cookieValue = Self.extractCookie(from: http, data: data, loginURL: url) {
             setCookie(cookieValue)
             KeychainStore.set(username, for: .mflUsername)
             return
         }
-        throw MFLError.loginFailed("Login succeeded but no session cookie was returned.")
+
+        let text = String(data: data, encoding: .utf8) ?? ""
+        if text.lowercased().contains("error") {
+            throw MFLError.loginFailed(text.strippingTags.prefix(180).description)
+        }
+        throw MFLError.loginFailed("Login succeeded but no session cookie was returned. Check username/password on myfantasyleague.com.")
+    }
+
+    /// Pulls MFL_USER_ID from Set-Cookie, response XML, or the shared cookie jar.
+    private static func extractCookie(from http: HTTPURLResponse, data: Data, loginURL: URL) -> String? {
+        if let header = http.value(forHTTPHeaderField: "Set-Cookie") {
+            for part in header.components(separatedBy: ",") {
+                let piece = part.trimmingCharacters(in: .whitespaces)
+                if piece.lowercased().hasPrefix("mfl_user_id=") {
+                    let value = piece.split(separator: ";", maxSplits: 1).first
+                        .map { String($0.dropFirst("MFL_USER_ID=".count)) }
+                    if let value, !value.isEmpty { return value }
+                }
+            }
+            // Single cookie form: MFL_USER_ID=...; path=/
+            if let match = header.split(separator: ";").first,
+               match.lowercased().contains("mfl_user_id") {
+                let value = match.split(separator: "=").dropFirst().joined(separator: "=")
+                if !value.isEmpty { return String(value) }
+            }
+        }
+        let text = String(data: data, encoding: .utf8) ?? ""
+        if let fromXML = text.mflCookieValue { return fromXML }
+        if let cookies = HTTPCookieStorage.shared.cookies(for: loginURL) {
+            for cookie in cookies where cookie.name.uppercased() == "MFL_USER_ID" {
+                return cookie.value
+            }
+        }
+        return nil
     }
 
     func myLeagues(season: Int = Calendar.current.mflSeason) async throws -> [MFLLeagueSummary] {
@@ -115,30 +138,97 @@ actor MFLClient {
         host: String,
         season: Int,
         leagueId: String,
+        franchiseId: String,
         week: Int,
         starterIds: [String],
         comments: String? = nil
     ) async throws -> String {
+        guard !starterIds.isEmpty else {
+            throw MFLError.decode("empty starters")
+        }
+        guard cookie != nil else {
+            throw MFLError.notLoggedIn
+        }
+
+        // Owners set their own lineup without FRANCHISE_ID.
+        // FRANCHISE_ID is only for commissioners impersonating a franchise — passing it as a
+        // normal owner often makes MFL reject the write silently or with a permission error.
+        let primary = try await postLineupImport(
+            host: host,
+            season: season,
+            leagueId: leagueId,
+            week: week,
+            starterIds: starterIds,
+            comments: comments,
+            franchiseId: nil
+        )
+        if !Self.importFailed(primary) {
+            return primary.isEmpty ? "OK" : primary
+        }
+
+        // Commissioner / multi-franchise fallback.
+        let withFranchise = try await postLineupImport(
+            host: host,
+            season: season,
+            leagueId: leagueId,
+            week: week,
+            starterIds: starterIds,
+            comments: comments,
+            franchiseId: franchiseId
+        )
+        if Self.importFailed(withFranchise) {
+            let cleaned = withFranchise.strippingTags
+            throw MFLError.http(200, cleaned.isEmpty ? withFranchise : cleaned)
+        }
+        return withFranchise.isEmpty ? "OK" : withFranchise
+    }
+
+    private func postLineupImport(
+        host: String,
+        season: Int,
+        leagueId: String,
+        week: Int,
+        starterIds: [String],
+        comments: String?,
+        franchiseId: String?
+    ) async throws -> String {
+        // MFL import accepts GET or POST; query-string GET is the documented test-form path.
         var comps = URLComponents(string: "https://\(host)/\(season)/import")!
-        comps.queryItems = [
+        var items: [URLQueryItem] = [
             URLQueryItem(name: "TYPE", value: "lineup"),
             URLQueryItem(name: "L", value: leagueId),
             URLQueryItem(name: "W", value: String(week)),
-            URLQueryItem(name: "STARTERS", value: starterIds.joined(separator: ",")),
-            URLQueryItem(name: "JSON", value: "1")
+            URLQueryItem(name: "STARTERS", value: starterIds.joined(separator: ","))
         ]
-        if let comments, !comments.isEmpty {
-            comps.queryItems?.append(URLQueryItem(name: "COMMENTS", value: comments))
+        if let franchiseId, !franchiseId.isEmpty {
+            items.append(URLQueryItem(name: "FRANCHISE_ID", value: franchiseId))
         }
+        if let comments, !comments.isEmpty {
+            items.append(URLQueryItem(name: "COMMENTS", value: comments))
+        }
+        comps.queryItems = items
         guard let url = comps.url else { throw MFLError.invalidResponse }
+
         var request = URLRequest(url: url)
-        request.httpMethod = "POST"
+        request.httpMethod = "GET"
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         if let cookie {
             request.setValue("MFL_USER_ID=\(cookie)", forHTTPHeaderField: "Cookie")
         }
         let (data, _) = try await perform(request, useCache: false, cacheTTL: 0)
         return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    private static func importFailed(_ body: String) -> Bool {
+        let lower = body.lowercased()
+        if lower.contains("<error") { return true }
+        if lower.contains("\"error\"") { return true }
+        if lower.contains("not logged") { return true }
+        if lower.contains("must be logged") { return true }
+        if lower.contains("permission") && lower.contains("denied") { return true }
+        if lower.contains("not authorized") { return true }
+        if lower.contains("invalid franchise") { return true }
+        return false
     }
 
     // MARK: - Internals

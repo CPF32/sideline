@@ -14,6 +14,14 @@ struct ApprovalsView: View {
         proposals.filter { $0.status != .pending }
     }
 
+    /// Drop raw MFL XML that used to be appended onto success copy.
+    private static func displayApplyResult(_ result: String) -> String {
+        guard let xml = result.range(of: "<?xml") else { return result }
+        let cleaned = String(result[..<xml.lowerBound])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? "Lineup submitted to MFL." : cleaned
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -44,6 +52,15 @@ struct ApprovalsView: View {
                                         Text("\(proposal.status.rawValue) · \(proposal.agentName)")
                                             .font(BrandTheme.body(12))
                                             .foregroundStyle(BrandTheme.muted)
+                                        if let result = proposal.applyResult, !result.isEmpty {
+                                            Text(Self.displayApplyResult(result))
+                                                .font(BrandTheme.body(12))
+                                                .foregroundStyle(
+                                                    proposal.status == .failed
+                                                        ? BrandTheme.danger
+                                                        : BrandTheme.muted
+                                                )
+                                        }
                                     }
                                     Button {
                                         appState.openFollowUpChat(for: proposal)
@@ -104,7 +121,6 @@ struct ApprovalsView: View {
     }
 
     private func deleteHistoryItem(_ proposal: ActionProposal) {
-        // Drop related chat threads for this proposal.
         let proposalId = proposal.id
         let threads = (try? modelContext.fetch(
             FetchDescriptor<AgentChatThread>(predicate: #Predicate { $0.proposalId == proposalId })
@@ -122,12 +138,59 @@ struct ProposalRow: View {
     let proposal: ActionProposal
     @State private var applying = false
 
-    private var lineupBlocked: LineupPayload? {
-        guard proposal.kind == .lineup,
-              let payload = try? JSONDecoder().decode(LineupPayload.self, from: Data(proposal.payloadJSON.utf8)),
-              payload.canAutoSet == false
-        else { return nil }
-        return payload
+    private var lineupPayload: LineupPayload? {
+        guard proposal.kind == .lineup else { return nil }
+        return try? JSONDecoder().decode(LineupPayload.self, from: Data(proposal.payloadJSON.utf8))
+    }
+
+    /// Blocked when canAutoSet is false OR missing (safe default).
+    private var lineupBlocked: Bool {
+        guard let payload = lineupPayload else { return false }
+        return !payload.isAutoSettable
+    }
+
+    private var slotLines: [(slot: String, name: String, reason: String)] {
+        guard let payload = lineupPayload, payload.isAutoSettable else { return [] }
+        let roster = appState.team?.allRostered ?? []
+        let byId = Dictionary(uniqueKeysWithValues: roster.map { ($0.playerId, $0) })
+
+        if let slots = payload.slots, !slots.isEmpty {
+            return slots.map { pick in
+                let player = byId[pick.playerId] ?? byId[MFLNameResolver.normalizePlayerId(pick.playerId)]
+                let name = pick.name ?? player?.name ?? pick.playerId
+                return (pick.slot, name, pick.reason ?? "")
+            }
+        }
+
+        // Fallback: map starterIds onto league slots / player positions.
+        var lines: [(String, String, String)] = []
+        let slots = appState.team?.leagueRules?.starterSlots ?? []
+        var remaining = payload.starterIds
+        func take(for allowed: Set<String>, label: String) {
+            guard let idx = remaining.firstIndex(where: { id in
+                let p = byId[id] ?? byId[MFLNameResolver.normalizePlayerId(id)]
+                return allowed.contains((p?.position ?? "").uppercased())
+            }) else { return }
+            let id = remaining.remove(at: idx)
+            let p = byId[id] ?? byId[MFLNameResolver.normalizePlayerId(id)]
+            lines.append((label, p?.name ?? id, ""))
+        }
+        for slot in slots where !slot.name.contains("/") {
+            for _ in 0..<max(slot.min, 1) {
+                take(for: [slot.name.uppercased()], label: slot.name.uppercased())
+            }
+        }
+        for slot in slots where slot.name.contains("/") {
+            let allowed = Set(slot.name.split(separator: "/").map { String($0).uppercased() })
+            for _ in 0..<max(slot.min, 1) {
+                take(for: allowed, label: slot.name.uppercased())
+            }
+        }
+        for id in remaining {
+            let p = byId[id] ?? byId[MFLNameResolver.normalizePlayerId(id)]
+            lines.append((p?.position.uppercased() ?? "START", p?.name ?? id, ""))
+        }
+        return lines
     }
 
     var body: some View {
@@ -150,8 +213,9 @@ struct ProposalRow: View {
                     .font(BrandTheme.body(14))
                     .foregroundStyle(BrandTheme.ink)
             }
-            if let blocked = lineupBlocked {
-                if let blockers = blocked.blockers, !blockers.isEmpty {
+
+            if lineupBlocked, let payload = lineupPayload {
+                if let blockers = payload.blockers, !blockers.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("WHY IT CAN’T AUTO-SET")
                             .font(BrandTheme.display(10, weight: .semibold))
@@ -164,7 +228,7 @@ struct ProposalRow: View {
                         }
                     }
                 }
-                if let changes = blocked.requiredChanges, !changes.isEmpty {
+                if let changes = payload.requiredChanges, !changes.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("WHAT TO FIX")
                             .font(BrandTheme.display(10, weight: .semibold))
@@ -177,11 +241,44 @@ struct ProposalRow: View {
                         }
                     }
                 }
+            } else if !slotLines.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("PROPOSED STARTERS")
+                        .font(BrandTheme.display(10, weight: .semibold))
+                        .foregroundStyle(BrandTheme.muted)
+                        .tracking(0.8)
+                    ForEach(Array(slotLines.enumerated()), id: \.offset) { _, row in
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(row.slot)
+                                    .font(BrandTheme.body(12, weight: .semibold))
+                                    .foregroundStyle(BrandTheme.muted)
+                                    .frame(width: 56, alignment: .leading)
+                                Text(row.name)
+                                    .font(BrandTheme.body(14, weight: .medium))
+                                    .foregroundStyle(BrandTheme.ink)
+                            }
+                            if !row.reason.isEmpty {
+                                Text(row.reason)
+                                    .font(BrandTheme.body(12))
+                                    .foregroundStyle(BrandTheme.muted)
+                                    .padding(.leading, 64)
+                            }
+                        }
+                    }
+                }
             } else if !proposal.rationale.isEmpty {
                 Text(proposal.rationale)
                     .font(BrandTheme.body(13))
                     .foregroundStyle(BrandTheme.muted)
             }
+
+            if !lineupBlocked, !proposal.rationale.isEmpty, !slotLines.isEmpty {
+                Text(proposal.rationale)
+                    .font(BrandTheme.body(12))
+                    .foregroundStyle(BrandTheme.muted)
+            }
+
             if !proposal.risks.isEmpty {
                 Text("Risks: \(proposal.risks)")
                     .font(BrandTheme.body(12))
@@ -191,11 +288,11 @@ struct ProposalRow: View {
                 Button {
                     appState.reject(proposal)
                 } label: {
-                    Text(lineupBlocked != nil ? "Dismiss" : "Reject")
+                    Text(lineupBlocked ? "Dismiss" : "Reject")
                 }
                 .buttonStyle(DangerButtonStyle())
 
-                if lineupBlocked == nil {
+                if !lineupBlocked {
                     Button {
                         Task {
                             applying = true

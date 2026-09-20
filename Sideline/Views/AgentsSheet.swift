@@ -9,6 +9,7 @@ struct AgentsSheet: View {
                 SidelineBackground()
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(AgentDesk.allCases.enumerated()), id: \.element.id) { index, desk in
+                        let isThisRunning = appState.isRunningAgent && appState.agentRunTitle == desk.title
                         Button {
                             Task { await appState.runAgent(desk) }
                         } label: {
@@ -22,7 +23,7 @@ struct AgentsSheet: View {
                                         .foregroundStyle(BrandTheme.muted)
                                 }
                                 Spacer()
-                                if appState.isRunningAgent {
+                                if isThisRunning {
                                     ProgressView()
                                 } else {
                                     Image(systemName: "chevron.right")
@@ -32,7 +33,7 @@ struct AgentsSheet: View {
                             .padding(.horizontal, BrandTheme.pageGutter)
                             .padding(.vertical, BrandTheme.space(16))
                             .padding(.top, index == 0 ? BrandTheme.tabContentTop : 0)
-                            .opacity(appState.isRunningAgent ? 0.55 : 1)
+                            .opacity(isThisRunning ? 0.55 : 1)
                         }
                         .disabled(appState.isRunningAgent)
                         Rectangle()

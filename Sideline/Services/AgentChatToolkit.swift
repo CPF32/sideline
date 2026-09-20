@@ -156,11 +156,12 @@ enum AgentChatToolkit {
 
     @MainActor
     private static func rosterText(appState: AppState) async -> String {
-        // Refresh team so answers aren't stale mid-chat.
+        // Soft refresh — keep last good roster if MFL hiccups mid-chat.
+        let previous = appState.team
         if appState.linkedFranchise != nil {
             await appState.syncTeam(week: appState.selectedWeek)
         }
-        guard let team = appState.team else {
+        guard let team = appState.team ?? previous else {
             return "No team loaded. Connect MFL and sync first."
         }
         func block(_ title: String, _ players: [RosterPlayer]) -> String {

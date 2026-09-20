@@ -12,8 +12,12 @@ struct TeamCockpitView: View {
                         header
                         Divider().overlay(BrandTheme.hairline)
                         matchupStrip
+                        if !appState.upcomingMatchups.isEmpty {
+                            Divider().overlay(BrandTheme.hairline)
+                            upcomingMatchupsSection
+                        }
                         Divider().overlay(BrandTheme.hairline)
-                        rosterSection(title: "Starters", players: appState.team?.starters ?? [])
+                        startersSection
                         Divider().overlay(BrandTheme.hairline)
                         benchSection
                         if shouldShowIR {
@@ -62,7 +66,7 @@ struct TeamCockpitView: View {
             leagueName: appState.linkedFranchise?.leagueName ?? "No league linked",
             subtitle: teamSubtitle,
             trailing: headerTrailing,
-            footnote: appState.isViewingHistoricWeek ? "Historic week" : nil
+            footnote: appState.weekKindLabel
         ) {
             if showsSalaryStrip {
                 salaryHeaderLine
@@ -127,6 +131,10 @@ struct TeamCockpitView: View {
                         }
                         if week < appState.currentSeasonWeek {
                             Text("Historic")
+                        } else if week > appState.currentSeasonWeek {
+                            Text("Upcoming")
+                        } else {
+                            Text("Current")
                         }
                     }
                 }
@@ -175,35 +183,96 @@ struct TeamCockpitView: View {
     }
 
     private var matchupStrip: some View {
-        HStack {
+        let matchup = appState.team?.matchup
+        let future = appState.isViewingFutureWeek
+        return HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Matchup")
+                Text(future ? "Upcoming matchup" : "Matchup")
                     .font(BrandTheme.body(12, weight: .medium))
                     .foregroundStyle(BrandTheme.muted)
-                Text(appState.team?.matchup?.opponentName.map { "vs \($0)" } ?? "—")
+                Text(matchup?.opponentName.map { "vs \($0)" } ?? "—")
                     .font(BrandTheme.body(16, weight: .semibold))
                     .foregroundStyle(BrandTheme.ink)
             }
             Spacer()
-            if let mine = appState.team?.matchup?.myScore {
-                Text(String(format: "%.1f", mine))
-                    .font(BrandTheme.mono(20, weight: .semibold))
-                    .foregroundStyle(BrandTheme.ink)
-            }
-            Text("–")
-                .foregroundStyle(BrandTheme.muted)
-            if let opp = appState.team?.matchup?.oppScore {
-                Text(String(format: "%.1f", opp))
-                    .font(BrandTheme.mono(20, weight: .semibold))
+            if future {
+                Text("Week \(appState.selectedWeek)")
+                    .font(BrandTheme.mono(16, weight: .semibold))
                     .foregroundStyle(BrandTheme.muted)
             } else {
-                Text("—")
-                    .font(BrandTheme.mono(20))
+                if let mine = matchup?.myScore {
+                    Text(String(format: "%.1f", mine))
+                        .font(BrandTheme.mono(20, weight: .semibold))
+                        .foregroundStyle(BrandTheme.ink)
+                }
+                Text("–")
                     .foregroundStyle(BrandTheme.muted)
+                if let opp = matchup?.oppScore {
+                    Text(String(format: "%.1f", opp))
+                        .font(BrandTheme.mono(20, weight: .semibold))
+                        .foregroundStyle(BrandTheme.muted)
+                } else {
+                    Text("—")
+                        .font(BrandTheme.mono(20))
+                        .foregroundStyle(BrandTheme.muted)
+                }
             }
         }
         .padding(.horizontal, BrandTheme.pageGutter)
         .padding(.vertical, BrandTheme.space(16))
+    }
+
+    private var upcomingMatchupsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("UPCOMING")
+                .font(BrandTheme.display(13, weight: .semibold))
+                .foregroundStyle(BrandTheme.muted)
+                .tracking(1)
+                .padding(.horizontal, BrandTheme.pageGutter)
+                .padding(.top, BrandTheme.space(16))
+                .padding(.bottom, BrandTheme.space(8))
+
+            ForEach(Array(appState.upcomingMatchups.prefix(4).enumerated()), id: \.element.id) { index, row in
+                Button {
+                    appState.selectWeek(row.week)
+                } label: {
+                    HStack {
+                        Text("Week \(row.week)")
+                            .font(BrandTheme.body(14, weight: .semibold))
+                            .foregroundStyle(BrandTheme.ink)
+                            .frame(width: 72, alignment: .leading)
+                        Text(row.isHome == true ? "vs" : (row.isHome == false ? "@" : "vs"))
+                            .font(BrandTheme.body(13))
+                            .foregroundStyle(BrandTheme.muted)
+                        Text(row.opponentName)
+                            .font(BrandTheme.body(15, weight: .medium))
+                            .foregroundStyle(BrandTheme.ink)
+                            .lineLimit(1)
+                        Spacer(minLength: 8)
+                        if row.week == appState.selectedWeek {
+                            Image(systemName: "checkmark")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(BrandTheme.muted)
+                        } else {
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(BrandTheme.muted)
+                        }
+                    }
+                    .padding(.horizontal, BrandTheme.pageGutter)
+                    .padding(.vertical, BrandTheme.space(12))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if index < min(appState.upcomingMatchups.count, 4) - 1 {
+                    Rectangle()
+                        .fill(BrandTheme.hairline)
+                        .frame(height: 1)
+                        .padding(.leading, BrandTheme.pageGutter)
+                }
+            }
+        }
+        .padding(.bottom, BrandTheme.space(12))
     }
 
     private var shouldShowIR: Bool {
@@ -332,6 +401,59 @@ struct TeamCockpitView: View {
                             .foregroundStyle(BrandTheme.muted)
                             .padding(.horizontal, BrandTheme.pageGutter)
                             .padding(.bottom, BrandTheme.space(6))
+                    }
+                }
+            }
+        }
+    }
+
+    private var startersSection: some View {
+        let starters = appState.team?.starters ?? []
+        let groups = RosterPositionGrouping.benchGroups(
+            players: starters,
+            rules: appState.team?.leagueRules
+        )
+        // Starters: show discrete positions only (alphabetical within each), skip empty Tiebreak.
+        let displayGroups = groups.filter { $0.key != "TIEBREAK" && !$0.players.isEmpty }
+        return VStack(alignment: .leading, spacing: 0) {
+            Text("STARTERS")
+                .font(BrandTheme.display(13, weight: .semibold))
+                .foregroundStyle(BrandTheme.muted)
+                .tracking(1)
+                .padding(.horizontal, BrandTheme.pageGutter)
+                .padding(.top, BrandTheme.space(16))
+                .padding(.bottom, BrandTheme.space(8))
+
+            if starters.isEmpty {
+                Text("No players")
+                    .font(BrandTheme.body(14))
+                    .foregroundStyle(BrandTheme.muted)
+                    .padding(.horizontal, BrandTheme.pageGutter)
+                    .padding(.bottom, BrandTheme.space(12))
+            } else if displayGroups.isEmpty {
+                ForEach(starters.sorted {
+                    $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+                }) { player in
+                    PlayerRow(player: player, isStarter: true)
+                }
+            } else {
+                ForEach(displayGroups) { group in
+                    Text(group.title)
+                        .font(BrandTheme.display(12, weight: .semibold))
+                        .foregroundStyle(BrandTheme.ink)
+                        .tracking(0.5)
+                        .padding(.horizontal, BrandTheme.pageGutter)
+                        .padding(.top, BrandTheme.space(10))
+                        .padding(.bottom, BrandTheme.space(4))
+
+                    ForEach(Array(group.players.enumerated()), id: \.element.id) { index, player in
+                        PlayerRow(player: player, isStarter: true)
+                        if index < group.players.count - 1 {
+                            Rectangle()
+                                .fill(BrandTheme.hairline)
+                                .frame(height: 1)
+                                .padding(.leading, BrandTheme.pageGutter)
+                        }
                     }
                 }
             }

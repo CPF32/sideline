@@ -232,13 +232,34 @@ struct AgentFollowUpChatSheet: View {
                 .suffix(20)
                 .map { ($0.role, $0.content) }
 
+            // Always inject a live roster snapshot so chat isn't empty when tools aren't called.
+            statusText = "Loading roster…"
+            let roster = await AgentChatToolkit.execute(
+                name: "get_roster", argumentsJSON: "{}", appState: appState
+            )
+            let rules = await AgentChatToolkit.execute(
+                name: "get_league_rules", argumentsJSON: "{}", appState: appState
+            )
+            let feasibility = await AgentChatToolkit.execute(
+                name: "get_lineup_feasibility", argumentsJSON: "{}", appState: appState
+            )
+            let fas = await AgentChatToolkit.execute(
+                name: "get_free_agents",
+                argumentsJSON: #"{"sort":"ytd","limit":12}"#,
+                appState: appState
+            )
+            let enrichedSystem = system
+                + "\n\nLIVE ROSTER / RULES (refreshed this turn — use this; do not invent players):\n"
+                + rules + "\n\n" + feasibility + "\n\n" + roster + "\n\n" + fas
+
             let usesNativeTools = appState.llmSettings.provider == .openAI
                 || appState.llmSettings.provider == .openRouter
 
             let reply: String
             if usesNativeTools {
+                statusText = "Thinking…"
                 reply = try await llm.runToolLoop(
-                    system: system,
+                    system: enrichedSystem,
                     history: Array(history),
                     tools: AgentChatToolkit.openAITools,
                     executeTool: { name, args in
@@ -255,23 +276,6 @@ struct AgentFollowUpChatSheet: View {
                     }
                 )
             } else {
-                // Anthropic/Google: inject a fresh roster + FA snapshot once, then plain chat.
-                statusText = "Loading roster & free agents…"
-                let roster = await AgentChatToolkit.execute(
-                    name: "get_roster", argumentsJSON: "{}", appState: appState
-                )
-                let fas = await AgentChatToolkit.execute(
-                    name: "get_free_agents",
-                    argumentsJSON: #"{"sort":"ytd","limit":15}"#,
-                    appState: appState
-                )
-                let rules = await AgentChatToolkit.execute(
-                    name: "get_league_rules", argumentsJSON: "{}", appState: appState
-                )
-                let enrichedSystem = system
-                    + "\n\nLIVE TOOL SNAPSHOT (refreshed this turn):\n"
-                    + rules + "\n\n" + roster + "\n\n" + fas
-                    + "\n\nUse this live data. If you need a different position, say which FA filter to run next."
                 statusText = "Thinking…"
                 reply = try await llm.completeChat(system: enrichedSystem, messages: Array(history))
             }

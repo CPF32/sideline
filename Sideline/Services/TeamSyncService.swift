@@ -126,6 +126,106 @@ enum TeamSyncService {
         )
     }
 
+    /// Franchise opponents for weeks after `afterWeek` through `throughWeek` (from full league schedule).
+    static func upcomingMatchups(
+        linked: LinkedFranchise,
+        franchiseId: String,
+        afterWeek: Int,
+        throughWeek: Int
+    ) async throws -> [UpcomingMatchupPreview] {
+        let data = try await MFLClient.shared.exportJSON(
+            host: linked.host,
+            season: linked.season,
+            type: "schedule",
+            leagueId: linked.leagueId,
+            cacheTTL: 600
+        )
+        let leagueData = try? await MFLClient.shared.exportJSON(
+            host: linked.host,
+            season: linked.season,
+            type: "league",
+            leagueId: linked.leagueId,
+            cacheTTL: 600
+        )
+        let names = leagueData.map { MFLNameResolver.parseFranchiseNames(from: $0) } ?? [:]
+        return parseFranchiseSchedule(
+            data,
+            franchiseId: franchiseId,
+            names: names,
+            afterWeek: afterWeek,
+            throughWeek: throughWeek
+        )
+    }
+
+    private static func parseFranchiseSchedule(
+        _ data: Data,
+        franchiseId: String,
+        names: [String: String],
+        afterWeek: Int,
+        throughWeek: Int
+    ) -> [UpcomingMatchupPreview] {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
+        let schedule = (root["schedule"] as? [String: Any]) ?? root
+        let myId = MFLNameResolver.normalizeFranchiseId(franchiseId)
+        var byWeek: [Int: UpcomingMatchupPreview] = [:]
+
+        func ingest(week: Int, matchupRows: [[String: Any]]) {
+            guard week > afterWeek, week <= throughWeek else { return }
+            for m in matchupRows {
+                let sides = arrayOfDicts(m["franchise"])
+                let ids = sides.compactMap { side -> String? in
+                    let raw = (side["id"] as? String) ?? (side["id"] as? Int).map(String.init)
+                    return raw.map { MFLNameResolver.normalizeFranchiseId($0) }
+                }
+                guard ids.contains(myId), ids.count >= 2 else { continue }
+                let oppId = ids.first { $0 != myId } ?? ""
+                let oppSide = sides.first { side in
+                    let raw = (side["id"] as? String) ?? (side["id"] as? Int).map(String.init) ?? ""
+                    return MFLNameResolver.normalizeFranchiseId(raw) == oppId
+                }
+                let isHome: Bool? = {
+                    if let h = oppSide?["isHome"] as? String { return h == "0" } // opp away ⇒ we home
+                    if let h = oppSide?["isHome"] as? Int { return h == 0 }
+                    // Some feeds mark our side
+                    if let mine = sides.first(where: {
+                        let raw = ($0["id"] as? String) ?? ($0["id"] as? Int).map(String.init) ?? ""
+                        return MFLNameResolver.normalizeFranchiseId(raw) == myId
+                    }) {
+                        if let h = mine["isHome"] as? String { return h == "1" }
+                        if let h = mine["isHome"] as? Int { return h == 1 }
+                    }
+                    return nil
+                }()
+                let oppName = MFLNameResolver.franchiseName(
+                    id: oppId,
+                    names: names,
+                    fallback: oppSide?["name"] as? String
+                ) ?? "Opponent"
+                byWeek[week] = UpcomingMatchupPreview(week: week, opponentName: oppName, isHome: isHome)
+            }
+        }
+
+        // Shape A: weeklySchedule = [ { week, matchup }, ... ]
+        let weekly = arrayOfDicts(schedule["weeklySchedule"])
+        if !weekly.isEmpty {
+            for node in weekly {
+                let w = intValue(node["week"]) ?? intValue(node["id"]) ?? 0
+                ingest(week: w, matchupRows: arrayOfDicts(node["matchup"]))
+            }
+        }
+
+        // Shape B: matchup array with week attribute on each
+        let flat = arrayOfDicts(schedule["matchup"])
+        for m in flat {
+            let w = intValue(m["week"]) ?? 0
+            if w > 0 {
+                ingest(week: w, matchupRows: [m])
+            }
+        }
+
+        return byWeek.keys.sorted().compactMap { byWeek[$0] }
+    }
+
     private static func nonPlaceholderName(_ raw: String?) -> String? {
         guard let raw else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)

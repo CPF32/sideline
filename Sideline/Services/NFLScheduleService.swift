@@ -72,21 +72,27 @@ enum NFLScheduleService {
         _ players: [RosterPlayer],
         games: [String: NFLGameInfo]
     ) -> [RosterPlayer] {
-        players.map { player in
+        // Empty map means schedule fetch/parse failed — never invent BYEs for everyone.
+        let scheduleLoaded = !games.isEmpty
+        return players.map { player in
             var p = player
-            let key = normalizeTeam(player.team)
             if player.team.isEmpty {
                 p.gameLockState = "unknown"
                 return p
             }
+            let key = normalizeTeam(player.team)
             if let info = games[key] ?? games[player.team.uppercased()] {
                 p.opponent = info.opponent
                 p.gameKickoff = info.kickoff
                 p.gameLockState = info.lockState
-            } else {
-                // Team not on this week's slate → bye (or unknown franchise code).
+            } else if scheduleLoaded {
+                // Team absent from a loaded slate → genuine bye week.
                 p.opponent = "BYE"
                 p.gameLockState = "bye"
+                p.gameKickoff = nil
+            } else {
+                p.opponent = nil
+                p.gameLockState = "unknown"
                 p.gameKickoff = nil
             }
             return p

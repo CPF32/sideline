@@ -142,6 +142,26 @@ enum LineupFeasibility {
             }
         }
 
+        // IR compliance — overfilled IR or injured actives when IR room remains.
+        if let irSlots = rules?.injuredReserveSlots, irSlots > 0 {
+            if team.ir.count > irSlots {
+                blockers.append("IR has \(team.ir.count) players but only \(irSlots) IR slot(s).")
+                changes.append("Move \(team.ir.count - irSlots) player(s) off IR onto the active roster or drop them.")
+            }
+            let room = max(0, irSlots - team.ir.count)
+            if room > 0 {
+                let injuredActive = (team.starters + team.bench).filter { player in
+                    let inj = (player.injuryStatus ?? "").lowercased()
+                    return inj.contains("out") || inj.contains("ir") || inj == "o"
+                        || inj.contains("injured reserve") || inj.contains("sus")
+                }
+                if !injuredActive.isEmpty {
+                    blockers.append("IR has \(room) open slot(s) but injured/out players remain on the active roster: " + injuredActive.map(\.name).joined(separator: ", ") + ".")
+                    changes.append("Move to IR: " + injuredActive.prefix(room).map(\.name).joined(separator: ", ") + ".")
+                }
+            }
+        }
+
         let uniqueBlockers = uniquePreserve(blockers)
         let uniqueChanges = uniquePreserve(changes)
         let can = uniqueBlockers.isEmpty

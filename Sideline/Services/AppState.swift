@@ -23,6 +23,10 @@ final class AppState: ObservableObject {
     @Published var selectedTab: MainTab = .team
     @Published var selectedWeek: Int = 1
     @Published var currentSeasonWeek: Int = 1
+    /// Last regular-season (or playoff) week available in this league for browsing/lineups.
+    @Published var seasonEndWeek: Int = 18
+    /// Next few franchise matchups after the live NFL week (from full schedule).
+    @Published var upcomingMatchups: [UpcomingMatchupPreview] = []
     @Published var leagueReview: LeagueReviewSnapshot?
     @Published var isLoadingLeague = false
     @Published var followUpProposal: ActionProposal?
@@ -33,11 +37,22 @@ final class AppState: ObservableObject {
     private var modelContext: ModelContext?
 
     var availableWeeks: [Int] {
-        Array(1...max(currentSeasonWeek, team?.week ?? selectedWeek, 1))
+        let end = max(seasonEndWeek, currentSeasonWeek, team?.week ?? selectedWeek, 1)
+        return Array(1...min(end, 22))
     }
 
     var isViewingHistoricWeek: Bool {
         selectedWeek < currentSeasonWeek
+    }
+
+    var isViewingFutureWeek: Bool {
+        selectedWeek > currentSeasonWeek
+    }
+
+    var weekKindLabel: String? {
+        if isViewingHistoricWeek { return "Historic week" }
+        if isViewingFutureWeek { return "Upcoming week — set lineup early" }
+        return nil
     }
 
     func attach(context: ModelContext) {
@@ -118,10 +133,10 @@ final class AppState: ObservableObject {
         do {
             let snapshot: TeamSnapshot
             if let week {
-                // Explicit week from the picker (current or historic)
+                // Explicit week from the picker (historic, live, or upcoming)
                 snapshot = try await TeamSyncService.loadTeam(linked: linked, week: week)
                 selectedWeek = week
-                currentSeasonWeek = max(currentSeasonWeek, week)
+                // Never advance "live" week just because the user browsed ahead.
             } else {
                 // Default / refresh — always land on live NFL week from nflSchedule
                 snapshot = try await TeamSyncService.loadTeam(linked: linked, week: nil)
@@ -129,6 +144,11 @@ final class AppState: ObservableObject {
                 currentSeasonWeek = snapshot.week
             }
             team = snapshot
+            if let end = snapshot.leagueRules?.endWeek, end >= currentSeasonWeek {
+                seasonEndWeek = end
+            } else {
+                seasonEndWeek = max(seasonEndWeek, 18, currentSeasonWeek)
+            }
             // Persist real team name once league export resolves it (myleagues often returns "Franchise").
             if snapshot.franchiseName.caseInsensitiveCompare("Franchise") != .orderedSame,
                !snapshot.franchiseName.isEmpty,
@@ -137,11 +157,45 @@ final class AppState: ObservableObject {
                 linked.updatedAt = .now
                 try? modelContext?.save()
             }
-            let historic = selectedWeek < currentSeasonWeek ? " · historic" : ""
-            statusMessage = "Week \(selectedWeek)\(historic)"
+            await refreshUpcomingMatchups(linked: linked)
+            let weekNote: String
+            if selectedWeek < currentSeasonWeek {
+                weekNote = " · historic"
+            } else if selectedWeek > currentSeasonWeek {
+                weekNote = " · upcoming"
+            } else {
+                weekNote = ""
+            }
+            statusMessage = "Week \(selectedWeek)\(weekNote)"
             log("Synced roster week \(selectedWeek)")
         } catch {
-            errorMessage = error.localizedDescription
+            // Keep last good roster so chat/tools aren't emptied by a flaky refresh.
+            if team != nil {
+                statusMessage = "Refresh incomplete — showing last sync"
+                let msg = error.localizedDescription
+                if msg.localizedCaseInsensitiveContains("429") || msg.localizedCaseInsensitiveContains("rate") {
+                    // Soft: don't pop a blocking alert for rate limits when we still have data.
+                    log("Sync soft-failed", detail: msg)
+                } else {
+                    errorMessage = msg
+                }
+            } else {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func refreshUpcomingMatchups(linked: LinkedFranchise) async {
+        do {
+            let rows = try await TeamSyncService.upcomingMatchups(
+                linked: linked,
+                franchiseId: linked.franchiseId,
+                afterWeek: currentSeasonWeek,
+                throughWeek: seasonEndWeek
+            )
+            upcomingMatchups = rows
+        } catch {
+            // Soft — keep prior list if schedule fetch fails.
         }
     }
 
@@ -196,6 +250,7 @@ final class AppState: ObservableObject {
                 host: linked.host,
                 season: linked.season,
                 leagueId: linked.leagueId,
+                franchiseId: linked.franchiseId,
                 week: team.week,
                 starterIds: starterIds,
                 comments: "Set via Sideline"
@@ -395,31 +450,34 @@ final class AppState: ObservableObject {
         switch proposal.kind {
         case .lineup:
             let payload = try JSONDecoder().decode(LineupPayload.self, from: data)
-            if payload.canAutoSet == false {
+            guard payload.isAutoSettable else {
                 let blockers = (payload.blockers ?? []).joined(separator: "; ")
                 let changes = (payload.requiredChanges ?? []).joined(separator: "; ")
-                return "Lineup not submitted — roster cannot auto-set yet. Blockers: \(blockers.isEmpty ? (payload.comments ?? "see proposal") : blockers). Fix: \(changes.isEmpty ? "see proposal rationale" : changes)"
+                throw MFLError.lineupBlocked(
+                    "Lineup not submitted — fix roster first. \(blockers.isEmpty ? (payload.comments ?? "See proposal blockers") : blockers). \(changes.isEmpty ? "" : "Fix: \(changes)")"
+                )
             }
             guard !payload.starterIds.isEmpty else {
-                return "Lineup not submitted — no starter IDs in proposal."
+                throw MFLError.decode("Lineup proposal has no starter IDs.")
             }
-            let lineupResult = try await MFLClient.shared.submitLineup(
+            try await MFLClient.shared.submitLineup(
                 host: linked.host,
                 season: linked.season,
                 leagueId: linked.leagueId,
+                franchiseId: linked.franchiseId,
                 week: payload.week,
                 starterIds: payload.starterIds,
                 comments: payload.comments
             )
             var extras: [String] = []
             if let ir = payload.irIds, !ir.isEmpty {
-                extras.append("IR list (\(ir.count) ids) recorded in proposal — MFL IR import pending")
+                extras.append("IR list (\(ir.count) ids) recorded in proposal — MFL IR import not wired yet; set IR in MFL if needed")
             }
             if let taxi = payload.taxiIds, !taxi.isEmpty {
-                extras.append("Taxi list (\(taxi.count) ids) recorded in proposal — MFL taxi import pending")
+                extras.append("Taxi list (\(taxi.count) ids) recorded in proposal — MFL taxi import not wired yet")
             }
-            if extras.isEmpty { return lineupResult }
-            return lineupResult + " · " + extras.joined(separator: " · ")
+            if extras.isEmpty { return "Lineup submitted to MFL." }
+            return "Lineup submitted to MFL. " + extras.joined(separator: " · ")
         case .waiver, .trade, .draft:
             // Import types vary by league; stage as approved local action with clear next step.
             // Lineup write path is fully wired; other ops log intent until league-specific import confirmed.

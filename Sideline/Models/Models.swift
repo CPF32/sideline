@@ -98,6 +98,14 @@ struct MatchupSnapshot: Hashable, Codable {
     var lineupDeadline: Date?
 }
 
+/// Franchise opponent for a future (or past) week, used on the Team tab schedule strip.
+struct UpcomingMatchupPreview: Identifiable, Hashable {
+    var id: Int { week }
+    let week: Int
+    let opponentName: String
+    var isHome: Bool?
+}
+
 struct TeamSnapshot: Hashable, Codable {
     var leagueId: String
     var franchiseId: String
@@ -162,6 +170,15 @@ enum SalaryFormat {
     }
 }
 
+struct LineupSlotPick: Codable, Hashable, Identifiable {
+    var id: String { "\(slot)-\(playerId)" }
+    /// Starter slot label from league rules (QB, RB, WR, TE, FLEX, etc.).
+    var slot: String
+    var playerId: String
+    var name: String?
+    var reason: String?
+}
+
 struct LineupPayload: Codable {
     var week: Int
     var starterIds: [String]
@@ -169,9 +186,15 @@ struct LineupPayload: Codable {
     var taxiIds: [String]?
     var comments: String?
     /// false when the desk cannot build a legal lineup with the current roster.
-    var canAutoSet: Bool? = true
+    /// Missing on decode → treat as blocked for safety (do not auto-approve).
+    var canAutoSet: Bool? = nil
     var blockers: [String]? = nil
     var requiredChanges: [String]? = nil
+    /// Per-slot picks with reasons (preferred display for Approvals).
+    var slots: [LineupSlotPick]? = nil
+
+    /// True only when explicitly marked auto-settable.
+    var isAutoSettable: Bool { canAutoSet == true }
 }
 
 enum ProposalKind: String, Codable, CaseIterable, Identifiable {
