@@ -76,7 +76,7 @@ struct TeamCockpitView: View {
             leagueName: appState.linkedFranchise?.leagueName ?? "No league linked",
             subtitle: teamSubtitle,
             trailing: headerTrailing,
-            footnote: appState.weekKindLabel
+            footnote: nil
         ) {
             if showsSalaryStrip {
                 salaryHeaderLine

@@ -251,20 +251,25 @@ final class AppState: ObservableObject {
 
         switch kind {
         case .team:
+            isGeneratingTeamSummary = true
+            if team == nil || team?.week != selectedWeek {
+                await syncTeam(week: selectedWeek)
+            }
             guard team != nil else {
                 errorMessage = "Sync your team first."
+                isGeneratingTeamSummary = false
                 return
             }
-            isGeneratingTeamSummary = true
         case .league:
+            isGeneratingLeagueSummary = true
             if leagueReview == nil || leagueReview?.week != selectedWeek {
                 await syncLeagueReview()
             }
             guard leagueReview != nil else {
                 errorMessage = "Sync league data first."
+                isGeneratingLeagueSummary = false
                 return
             }
-            isGeneratingLeagueSummary = true
         }
         defer {
             isGeneratingTeamSummary = false
@@ -291,6 +296,27 @@ final class AppState: ObservableObject {
                 modelLabel: llmSettings.selectedModelLabel
             )
             refreshCachedSummaries()
+            if loadCachedSummary(kind: kind) == nil {
+                // Persist failed (no context) — still surface in-memory so the sheet isn't empty.
+                let cached = CachedWeekSummary(
+                    id: PersistedWeekSummary.makeId(
+                        kind: kind,
+                        leagueId: linked.leagueId,
+                        franchiseId: linked.franchiseId,
+                        season: linked.season,
+                        week: selectedWeek
+                    ),
+                    kind: kind,
+                    week: selectedWeek,
+                    body: body,
+                    modelLabel: llmSettings.selectedModelLabel,
+                    createdAt: .now
+                )
+                switch kind {
+                case .team: teamWeekSummary = cached
+                case .league: leagueWeekSummary = cached
+                }
+            }
             log("Saved \(kind.title) for week \(selectedWeek)")
         } catch {
             errorMessage = error.localizedDescription

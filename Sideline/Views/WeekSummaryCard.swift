@@ -1,7 +1,7 @@
 import SwiftUI
 import Charts
 
-/// Lime “Summary” control shown above the week picker for historic weeks only.
+/// “Summary” control shown above the week picker for historic weeks only.
 struct WeekSummaryLink: View {
     let isGenerating: Bool
     let action: () -> Void
@@ -12,12 +12,12 @@ struct WeekSummaryLink: View {
                 if isGenerating {
                     ProgressView()
                         .controlSize(.mini)
-                        .tint(BrandTheme.accent)
                 }
                 Text("Summary")
-                    .font(BrandTheme.body(13, weight: .semibold))
+                    .font(BrandTheme.body(13, weight: .bold))
+                    .underline(true, color: BrandTheme.ink.opacity(0.35))
             }
-            .foregroundStyle(BrandTheme.accent)
+            .foregroundStyle(BrandTheme.ink)
         }
         .buttonStyle(.plain)
         .disabled(isGenerating)
@@ -30,6 +30,8 @@ struct WeekSummarySheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let kind: WeekSummaryKind
+
+    @State private var attemptFinished = false
 
     private var summary: CachedWeekSummary? {
         kind == .team ? appState.teamWeekSummary : appState.leagueWeekSummary
@@ -47,7 +49,7 @@ struct WeekSummarySheet: View {
                     Group {
                         if let document = summary?.document {
                             summaryContent(document)
-                        } else if isGenerating {
+                        } else if isGenerating || !attemptFinished {
                             HStack(spacing: 10) {
                                 ProgressView()
                                 Text("Writing summary…")
@@ -57,9 +59,20 @@ struct WeekSummarySheet: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.top, BrandTheme.space(24))
                         } else {
-                            Text("Couldn’t load this summary.")
-                                .font(BrandTheme.body(14))
-                                .foregroundStyle(BrandTheme.muted)
+                            VStack(alignment: .leading, spacing: 14) {
+                                Text(appState.errorMessage ?? "Couldn’t load this summary.")
+                                    .font(BrandTheme.body(14))
+                                    .foregroundStyle(BrandTheme.muted)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Button("Try again") {
+                                    attemptFinished = false
+                                    Task { await loadSummary() }
+                                }
+                                .font(BrandTheme.body(14, weight: .semibold))
+                                .foregroundStyle(BrandTheme.ink)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, BrandTheme.space(24))
                         }
                     }
                     .padding(.horizontal, BrandTheme.pageGutter)
@@ -82,17 +95,24 @@ struct WeekSummarySheet: View {
                 }
             }
             .task {
-                if summary == nil {
-                    await appState.generateWeekSummary(kind: kind)
-                }
+                await loadSummary()
             }
         }
+    }
+
+    private func loadSummary() async {
+        if summary?.document != nil {
+            attemptFinished = true
+            return
+        }
+        await appState.generateWeekSummary(kind: kind)
+        attemptFinished = true
     }
 
     @ViewBuilder
     private func summaryContent(_ document: WeekSummaryDocument) -> some View {
         VStack(alignment: .leading, spacing: BrandTheme.space(22)) {
-            Text(document.headline)
+            Text(document.headline.isEmpty ? "Week \(appState.selectedWeek)" : document.headline)
                 .font(BrandTheme.display(26, weight: .bold))
                 .foregroundStyle(BrandTheme.ink)
                 .fixedSize(horizontal: false, vertical: true)
@@ -101,6 +121,14 @@ struct WeekSummarySheet: View {
                 teamSections(team)
             } else if kind == .league, let league = document.league {
                 leagueSections(league)
+            } else if kind == .team, let blurb = document.team?.matchupBlurb, !blurb.isEmpty {
+                Text(blurb)
+                    .font(BrandTheme.body(15))
+                    .foregroundStyle(BrandTheme.ink)
+            } else if kind == .league, let recap = document.league?.recap, !recap.isEmpty {
+                Text(recap)
+                    .font(BrandTheme.body(15))
+                    .foregroundStyle(BrandTheme.ink)
             }
 
             if let summary {
@@ -151,7 +179,7 @@ struct WeekSummarySheet: View {
                 ForEach(Array(team.nextActions.enumerated()), id: \.offset) { _, action in
                     HStack(alignment: .top, spacing: 8) {
                         Circle()
-                            .fill(BrandTheme.accent)
+                            .fill(BrandTheme.ink)
                             .frame(width: 6, height: 6)
                             .padding(.top, 6)
                         Text(action)
@@ -170,7 +198,7 @@ struct WeekSummarySheet: View {
                 Text(result.uppercased())
                     .font(BrandTheme.display(12, weight: .semibold))
                     .tracking(1)
-                    .foregroundStyle(BrandTheme.accent)
+                    .foregroundStyle(BrandTheme.muted)
             }
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -203,7 +231,7 @@ struct WeekSummarySheet: View {
                         x: .value("Side", "You"),
                         y: .value("Pts", my)
                     )
-                    .foregroundStyle(BrandTheme.accent)
+                    .foregroundStyle(BrandTheme.ink)
                     BarMark(
                         x: .value("Side", "Opp"),
                         y: .value("Pts", opp)
@@ -224,7 +252,7 @@ struct WeekSummarySheet: View {
                 x: .value("Pts", point.value),
                 y: .value("Player", point.label)
             )
-            .foregroundStyle((point.highlight == true) ? BrandTheme.accent : BrandTheme.ink.opacity(0.55))
+            .foregroundStyle((point.highlight == true) ? BrandTheme.ink : BrandTheme.ink.opacity(0.45))
         }
         .chartXAxis {
             AxisMarks(values: .automatic(desiredCount: 4))
@@ -290,8 +318,16 @@ struct WeekSummarySheet: View {
                 let home = parts.first ?? point.label
                 let away = parts.count > 1 ? parts[1] : "Opp"
                 VStack(spacing: 6) {
-                    scoreboardSide(name: home, score: point.value, leading: (point.secondary.map { point.value > $0 } ?? false) || point.highlight == true)
-                    scoreboardSide(name: away, score: point.secondary, leading: point.secondary.map { $0 > point.value } ?? false)
+                    scoreboardSide(
+                        name: home,
+                        score: point.value,
+                        leading: (point.secondary.map { point.value > $0 } ?? false) || point.highlight == true
+                    )
+                    scoreboardSide(
+                        name: away,
+                        score: point.secondary,
+                        leading: point.secondary.map { $0 > point.value } ?? false
+                    )
                 }
                 .padding(.vertical, BrandTheme.space(10))
                 if index < points.count - 1 {
@@ -322,7 +358,7 @@ struct WeekSummarySheet: View {
                 x: .value("PF", point.value),
                 y: .value("Team", point.label)
             )
-            .foregroundStyle((point.highlight == true) ? BrandTheme.accent : BrandTheme.ink.opacity(0.5))
+            .foregroundStyle((point.highlight == true) ? BrandTheme.ink : BrandTheme.ink.opacity(0.45))
         }
         .chartXAxis {
             AxisMarks(values: .automatic(desiredCount: 4))
@@ -377,8 +413,7 @@ struct WeekSummarySheet: View {
         switch badge.uppercased() {
         case "START", "UP": return BrandTheme.standingsUp
         case "SIT", "DOWN": return BrandTheme.standingsDown
-        case "HOLD", "NEWS": return BrandTheme.muted
-        default: return BrandTheme.accent
+        default: return BrandTheme.muted
         }
     }
 

@@ -77,7 +77,7 @@ struct LeagueReviewView: View {
             leagueName: appState.linkedFranchise?.leagueName ?? "League",
             subtitle: "Week \(appState.selectedWeek) overview",
             trailing: AnyView(headerTrailing),
-            footnote: appState.weekKindLabel
+            footnote: nil
         )
     }
 
