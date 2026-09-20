@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0A7130194D89BF33DEB5C273 /* APIKeyCameraScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 649BA86FF36BAFA4B3D9D61F /* APIKeyCameraScanner.swift */; };
 		20B6DCEB6D65227383E1308A /* AgentCriteria.swift in Sources */ = {isa = PBXBuildFile; fileRef = C656CD9CBF0F66E5BCB185BB /* AgentCriteria.swift */; };
 		2B14B07F2794547C547F7473 /* MFLClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0568A640E69116D5E6BD365A /* MFLClient.swift */; };
 		305E6FF20422CEB4D4D9F218 /* TeamCockpitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E97A87C0B4A9810BB9FF4D /* TeamCockpitView.swift */; };
@@ -64,6 +65,7 @@
 		586D7CFDD99DC727829B91F4 /* LeaguePageHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeaguePageHeader.swift; sourceTree = "<group>"; };
 		6222EDEB3103507CA2F5D58B /* AppleAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleAuthService.swift; sourceTree = "<group>"; };
 		64871C66B6AAE284DD5CE1C1 /* LLMSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMSettingsStore.swift; sourceTree = "<group>"; };
+		649BA86FF36BAFA4B3D9D61F /* APIKeyCameraScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyCameraScanner.swift; sourceTree = "<group>"; };
 		793E443584D3D5A4F2860AA1 /* LLMModelCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMModelCatalog.swift; sourceTree = "<group>"; };
 		7A8A6D428267C9DB1C9DF013 /* LLMClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMClient.swift; sourceTree = "<group>"; };
 		8292AAE5F308E3B127029584 /* ConnectMFLView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectMFLView.swift; sourceTree = "<group>"; };
@@ -173,6 +175,7 @@
 			children = (
 				B9D757B5DFBB184F31EB53A9 /* AgentFollowUpChatSheet.swift */,
 				D4C7F410C972AF9443C26AA1 /* AgentsSheet.swift */,
+				649BA86FF36BAFA4B3D9D61F /* APIKeyCameraScanner.swift */,
 				C80D5FB097DF0B5D9ED21CCC /* ApprovalsView.swift */,
 				8292AAE5F308E3B127029584 /* ConnectMFLView.swift */,
 				586D7CFDD99DC727829B91F4 /* LeaguePageHeader.swift */,
@@ -258,6 +261,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0A7130194D89BF33DEB5C273 /* APIKeyCameraScanner.swift in Sources */,
 				7C7879BFFF6B0659FC73039B /* AgentChatToolkit.swift in Sources */,
 				20B6DCEB6D65227383E1308A /* AgentCriteria.swift in Sources */,
 				AF37BDF34748EA74100C1F8C /* AgentFollowUpChatSheet.swift in Sources */,
@@ -311,6 +315,7 @@
 				DEVELOPMENT_TEAM = "";
 				INFOPLIST_FILE = Sideline/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Sideline;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Sideline uses the camera to scan an API key from a QR code or on-screen text.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIRequiresFullScreen = YES;
@@ -407,6 +412,7 @@
 				DEVELOPMENT_TEAM = "";
 				INFOPLIST_FILE = Sideline/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Sideline;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Sideline uses the camera to scan an API key from a QR code or on-screen text.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIRequiresFullScreen = YES;

@@ -17,6 +17,7 @@ Sideline (“the app”) is a local-first iOS companion for MyFantasyLeague mana
 | Sign in with Apple user ID and display name (optional) | Keychain / on-device | Sign you in locally |
 | MyFantasyLeague username and session cookie | Keychain | Connect and sync your league |
 | LLM API keys you paste in Settings | Keychain | Call the provider you select |
+| Camera (optional) | Not stored | Scan an API key from a QR code or on-screen text; frames are not saved |
 | Linked league / franchise metadata, proposals, chat threads, preferences | On-device (SwiftData / UserDefaults) | Run the team cockpit, agents, and approvals |
 
 Deleting the app removes this on-device data (subject to any iCloud/device backups you enable).

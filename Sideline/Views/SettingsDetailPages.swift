@@ -292,6 +292,8 @@ struct APIKeySettingsPage: View {
     @ObservedObject var llm: LLMSettingsStore
     @State private var banner: String?
     @State private var bannerError = false
+    @State private var isKeyVisible = false
+    @State private var showScanner = false
 
     var body: some View {
         SettingsPageChrome(title: "API key") {
@@ -307,11 +309,49 @@ struct APIKeySettingsPage: View {
 
             labeledField(llm.provider.displayName) {
                 fieldShell {
-                    SecureField("Paste API key", text: $llm.apiKeyDraft)
+                    HStack(spacing: 10) {
+                        Group {
+                            if isKeyVisible {
+                                TextField("Paste or scan API key", text: $llm.apiKeyDraft)
+                            } else {
+                                SecureField("Paste or scan API key", text: $llm.apiKeyDraft)
+                            }
+                        }
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .textContentType(.password)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Button {
+                            isKeyVisible.toggle()
+                        } label: {
+                            Image(systemName: isKeyVisible ? "eye.slash" : "eye")
+                                .font(.system(size: 17, weight: .medium))
+                                .foregroundStyle(BrandTheme.muted)
+                                .frame(width: 28, height: 28)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(isKeyVisible ? "Hide API key" : "Show API key")
+
+                        Button {
+                            showScanner = true
+                        } label: {
+                            Image(systemName: "camera.viewfinder")
+                                .font(.system(size: 17, weight: .medium))
+                                .foregroundStyle(BrandTheme.ink)
+                                .frame(width: 28, height: 28)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Scan API key with camera")
+                    }
                 }
             }
+
+            Text("Paste a key, tap the eye to reveal it, or scan a QR / on-screen key with the camera.")
+                .font(BrandTheme.body(13))
+                .foregroundStyle(BrandTheme.muted)
 
             Text(llm.maskedKeyHint)
                 .font(BrandTheme.body(13))
@@ -326,6 +366,21 @@ struct APIKeySettingsPage: View {
                 Text("Save API key")
             }
             .buttonStyle(PrimaryButtonStyle())
+        }
+        .fullScreenCover(isPresented: $showScanner) {
+            APIKeyCameraScanner(
+                onScan: { value in
+                    llm.apiKeyDraft = value
+                    isKeyVisible = true
+                    showScanner = false
+                    banner = "Scanned key — tap Save API key to store it in Keychain."
+                    bannerError = false
+                },
+                onCancel: {
+                    showScanner = false
+                }
+            )
+            .ignoresSafeArea()
         }
     }
 }
