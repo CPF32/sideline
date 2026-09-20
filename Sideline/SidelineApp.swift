@@ -24,7 +24,8 @@ struct SidelineApp: App {
                     ActionProposal.self,
                     AgentChatThread.self,
                     AgentChatMessage.self,
-                    ActivityEvent.self
+                    ActivityEvent.self,
+                    PersistedWeekSummary.self
                 ])
         }
     }

@@ -1,7 +1,29 @@
 import Foundation
 
-/// Pulls MFL playerProfile (+ ranks/trending when available) for recommendation analysis.
+/// Pulls MFL playerProfile (+ ranks/trending when available) for recommendation analysis
+/// and the on-roster player detail sheet.
 enum MFLPlayerResearchService {
+    static func fetchDetail(
+        playerId: String,
+        linked: LinkedFranchise
+    ) async -> PlayerDetail {
+        let nid = MFLNameResolver.normalizePlayerId(playerId)
+        let map = await loadDetails(playerIds: [nid], linked: linked, maxPlayers: 1)
+        return map[nid] ?? map[playerId] ?? PlayerDetail(
+            playerId: nid,
+            name: nil,
+            age: nil,
+            dob: nil,
+            height: nil,
+            weight: nil,
+            adp: nil,
+            mflRank: nil,
+            topAddsPct: nil,
+            injury: nil,
+            newsHeadlines: []
+        )
+    }
+
     static func summarize(
         playerIds: [String],
         linked: LinkedFranchise,
@@ -15,6 +37,51 @@ enum MFLPlayerResearchService {
                 .prefix(maxPlayers)
         )
         guard !ids.isEmpty else { return "No player ids provided for research." }
+
+        let details = await loadDetails(playerIds: ids, linked: linked, maxPlayers: maxPlayers)
+        var blocks: [String] = [
+            "MFL PLAYER RESEARCH (use this to analyze options — do not just recite salary):"
+        ]
+        for id in ids {
+            let p = details[id] ?? details[MFLNameResolver.normalizePlayerId(id)]
+            var lines: [String] = ["PLAYER \(id)"]
+            if let name = p?.name, !name.isEmpty { lines.append("name=\(name)") }
+            if let age = p?.age { lines.append("age=\(age)") }
+            if let dob = p?.dob { lines.append("dob=\(dob)") }
+            if let h = p?.height { lines.append("height=\(h)") }
+            if let w = p?.weight { lines.append("weight=\(w)") }
+            if let adp = p?.adp, !adp.isEmpty, adp.uppercased() != "N/A" {
+                lines.append("adp=\(adp)")
+            }
+            if let rank = p?.mflRank { lines.append("mflRank=\(rank)") }
+            if let addPct = p?.topAddsPct { lines.append("topAddsPct=\(addPct)") }
+            if let inj = p?.injury { lines.append("injury=\(inj)") }
+            if let news = p?.newsHeadlines, !news.isEmpty {
+                lines.append("news=" + news.prefix(3).joined(separator: " | "))
+            }
+            if lines.count == 1 {
+                lines.append("(no MFL profile details returned)")
+            }
+            blocks.append(lines.joined(separator: "\n"))
+        }
+        return blocks.joined(separator: "\n\n")
+    }
+
+    // MARK: - Load
+
+    private static func loadDetails(
+        playerIds: [String],
+        linked: LinkedFranchise,
+        maxPlayers: Int
+    ) async -> [String: PlayerDetail] {
+        let ids = Array(
+            playerIds
+                .map { MFLNameResolver.normalizePlayerId($0) }
+                .filter { !$0.isEmpty && $0 != "0000" }
+                .uniqued()
+                .prefix(maxPlayers)
+        )
+        guard !ids.isEmpty else { return [:] }
 
         async let profilesData = try? await MFLClient.shared.exportJSON(
             host: linked.host,
@@ -55,38 +122,26 @@ enum MFLPlayerResearchService {
         let trending = topAddsRaw.map { parseTopAdds($0) } ?? [:]
         let injuries = injuriesRaw.map { parseInjuries($0) } ?? [:]
 
-        var blocks: [String] = [
-            "MFL PLAYER RESEARCH (use this to analyze options — do not just recite salary):"
-        ]
+        var out: [String: PlayerDetail] = [:]
         for id in ids {
             let p = profiles[id] ?? profiles[MFLNameResolver.normalizePlayerId(id)]
-            var lines: [String] = ["PLAYER \(id)"]
-            if let name = p?.name, !name.isEmpty { lines.append("name=\(name)") }
-            if let age = p?.age { lines.append("age=\(age)") }
-            if let dob = p?.dob { lines.append("dob=\(dob)") }
-            if let h = p?.height { lines.append("height=\(h)") }
-            if let w = p?.weight { lines.append("weight=\(w)") }
-            if let adp = p?.adp, !adp.isEmpty, adp.uppercased() != "N/A" {
-                lines.append("adp=\(adp)")
-            }
-            if let rank = ranks[id] ?? ranks[MFLNameResolver.normalizePlayerId(id)] {
-                lines.append("mflRank=\(rank)")
-            }
-            if let addPct = trending[id] ?? trending[MFLNameResolver.normalizePlayerId(id)] {
-                lines.append("topAddsPct=\(addPct)")
-            }
-            if let inj = injuries[id] ?? injuries[MFLNameResolver.normalizePlayerId(id)] {
-                lines.append("injury=\(inj)")
-            }
-            if let news = p?.newsHeadlines, !news.isEmpty {
-                lines.append("news=" + news.prefix(3).joined(separator: " | "))
-            }
-            if lines.count == 1 {
-                lines.append("(no MFL profile details returned)")
-            }
-            blocks.append(lines.joined(separator: "\n"))
+            let detail = PlayerDetail(
+                playerId: id,
+                name: p?.name,
+                age: p?.age,
+                dob: p?.dob,
+                height: p?.height,
+                weight: p?.weight,
+                adp: p?.adp,
+                mflRank: ranks[id] ?? ranks[MFLNameResolver.normalizePlayerId(id)],
+                topAddsPct: trending[id] ?? trending[MFLNameResolver.normalizePlayerId(id)],
+                injury: injuries[id] ?? injuries[MFLNameResolver.normalizePlayerId(id)],
+                newsHeadlines: p?.newsHeadlines ?? []
+            )
+            out[id] = detail
+            out[MFLNameResolver.normalizePlayerId(id)] = detail
         }
-        return blocks.joined(separator: "\n\n")
+        return out
     }
 
     // MARK: - Parsers
@@ -106,14 +161,12 @@ enum MFLPlayerResearchService {
         let profileRoot = (root["playerProfile"] as? [String: Any]) ?? root
         var out: [String: Profile] = [:]
 
-        // Single profile object
         if profileRoot["id"] != nil || profileRoot["player"] != nil {
             if let parsed = parseOneProfile(profileRoot) {
                 out[parsed.0] = parsed.1
             }
         }
 
-        // Multiple: playerProfile.playerProfile or array under player
         let candidates: [Any] = [
             profileRoot["playerProfile"] as Any,
             profileRoot["player"] as Any,

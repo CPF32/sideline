@@ -49,6 +49,8 @@ struct RosterPlayer: Identifiable, Hashable, Codable {
     var team: String
     var status: String // starter | bench | ir | taxi | fa
     var projectedPoints: Double?
+    /// Live / final fantasy points for the selected week (from liveScoring / playerScores).
+    var actualPoints: Double? = nil
     var seasonPoints: Double? = nil
     var lastWeekPoints: Double? = nil
     var opponent: String?
@@ -60,12 +62,28 @@ struct RosterPlayer: Identifiable, Hashable, Codable {
     var salary: Double? = nil
     var contractYear: Int? = nil
 
+    /// Prefer live/final points once the NFL game has started; otherwise projection.
+    var displayWeekPoints: (value: Double, isLive: Bool)? {
+        let lock = gameLockState ?? "upcoming"
+        if lock == "started" || lock == "final", let actual = actualPoints {
+            return (actual, true)
+        }
+        if let proj = projectedPoints {
+            return (proj, false)
+        }
+        if let actual = actualPoints, lock != "bye", lock != "upcoming" {
+            return (actual, true)
+        }
+        return nil
+    }
+
     func replacing(
         status: String? = nil,
         name: String? = nil,
         position: String? = nil,
         team: String? = nil,
         projectedPoints: Double? = nil,
+        actualPoints: Double? = nil,
         opponent: String? = nil,
         injuryStatus: String? = nil,
         salary: Double? = nil,
@@ -78,6 +96,7 @@ struct RosterPlayer: Identifiable, Hashable, Codable {
             team: team ?? self.team,
             status: status ?? self.status,
             projectedPoints: projectedPoints ?? self.projectedPoints,
+            actualPoints: actualPoints ?? self.actualPoints,
             seasonPoints: seasonPoints,
             lastWeekPoints: lastWeekPoints,
             opponent: opponent ?? self.opponent,
@@ -327,6 +346,90 @@ final class ActivityEvent {
         self.message = message
         self.detail = detail
         self.createdAt = .now
+    }
+}
+
+enum WeekSummaryKind: String, Codable, CaseIterable, Identifiable {
+    case team
+    case league
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .team: return "Team summary"
+        case .league: return "League summary"
+        }
+    }
+}
+
+/// One immutable AI summary per league/season/week/kind (team summaries also keyed by franchise).
+@Model
+final class PersistedWeekSummary {
+    @Attribute(.unique) var id: String
+    var kindRaw: String
+    var leagueId: String
+    var franchiseId: String
+    var season: Int
+    var week: Int
+    var body: String
+    var modelLabel: String
+    var createdAt: Date
+
+    var kind: WeekSummaryKind {
+        get { WeekSummaryKind(rawValue: kindRaw) ?? .team }
+        set { kindRaw = newValue.rawValue }
+    }
+
+    init(
+        kind: WeekSummaryKind,
+        leagueId: String,
+        franchiseId: String,
+        season: Int,
+        week: Int,
+        body: String,
+        modelLabel: String
+    ) {
+        self.id = Self.makeId(
+            kind: kind,
+            leagueId: leagueId,
+            franchiseId: franchiseId,
+            season: season,
+            week: week
+        )
+        self.kindRaw = kind.rawValue
+        self.leagueId = leagueId
+        self.franchiseId = franchiseId
+        self.season = season
+        self.week = week
+        self.body = body
+        self.modelLabel = modelLabel
+        self.createdAt = .now
+    }
+
+    static func makeId(
+        kind: WeekSummaryKind,
+        leagueId: String,
+        franchiseId: String,
+        season: Int,
+        week: Int
+    ) -> String {
+        let franchiseKey = kind == .league ? "league" : franchiseId
+        return "\(kind.rawValue)|\(leagueId)|\(franchiseKey)|\(season)|\(week)"
+    }
+}
+
+/// In-memory view of a stored summary (avoids publishing SwiftData models).
+struct CachedWeekSummary: Hashable {
+    let id: String
+    let kind: WeekSummaryKind
+    let week: Int
+    let body: String
+    let modelLabel: String
+    let createdAt: Date
+
+    var document: WeekSummaryDocument? {
+        WeekSummaryDocumentCodec.decode(from: body)
     }
 }
 

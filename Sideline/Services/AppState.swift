@@ -30,6 +30,10 @@ final class AppState: ObservableObject {
     @Published var leagueReview: LeagueReviewSnapshot?
     @Published var isLoadingLeague = false
     @Published var followUpProposal: ActionProposal?
+    @Published var teamWeekSummary: CachedWeekSummary?
+    @Published var leagueWeekSummary: CachedWeekSummary?
+    @Published var isGeneratingTeamSummary = false
+    @Published var isGeneratingLeagueSummary = false
 
     let auth = AppleAuthService()
     let llmSettings = LLMSettingsStore()
@@ -61,6 +65,7 @@ final class AppState: ObservableObject {
         if linkedFranchise == nil {
             linkedFranchise = try? context.fetch(FetchDescriptor<LinkedFranchise>()).first
         }
+        refreshCachedSummaries()
     }
 
     /// Removes leftover ScreenshotDemo franchise/proposals so normal sync uses a real MFL link.
@@ -88,6 +93,8 @@ final class AppState: ObservableObject {
                 linkedFranchise = nil
                 team = nil
                 leagueReview = nil
+                teamWeekSummary = nil
+                leagueWeekSummary = nil
                 pendingCount = 0
                 agentActivityLines = []
                 agentActivityStatus = nil
@@ -118,6 +125,7 @@ final class AppState: ObservableObject {
 
     func selectWeek(_ week: Int) {
         selectedWeek = week
+        refreshCachedSummaries()
         Task { await syncTeam(week: week) }
     }
 
@@ -168,6 +176,7 @@ final class AppState: ObservableObject {
             }
             statusMessage = "Week \(selectedWeek)\(weekNote)"
             log("Synced roster week \(selectedWeek)")
+            refreshCachedSummaries()
         } catch {
             // Keep last good roster so chat/tools aren't emptied by a flaky refresh.
             if team != nil {
@@ -209,9 +218,144 @@ final class AppState: ObservableObject {
         defer { isLoadingLeague = false }
         do {
             leagueReview = try await LeagueReviewService.load(linked: linked, week: selectedWeek)
+            refreshCachedSummaries()
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    func refreshCachedSummaries() {
+        teamWeekSummary = loadCachedSummary(kind: .team)
+        leagueWeekSummary = loadCachedSummary(kind: .league)
+    }
+
+    func generateWeekSummary(kind: WeekSummaryKind) async {
+        guard let linked = linkedFranchise else {
+            showConnect = true
+            return
+        }
+        guard isViewingHistoricWeek else {
+            errorMessage = "Summaries are only available for past weeks."
+            return
+        }
+        // Already saved for this week — never regenerate.
+        if loadCachedSummary(kind: kind) != nil {
+            refreshCachedSummaries()
+            return
+        }
+        guard let apiKey = llmSettings.resolvedAPIKey() else {
+            errorMessage = LLMClientError.missingAPIKey.localizedDescription
+            selectedTab = .settings
+            return
+        }
+
+        switch kind {
+        case .team:
+            guard team != nil else {
+                errorMessage = "Sync your team first."
+                return
+            }
+            isGeneratingTeamSummary = true
+        case .league:
+            if leagueReview == nil || leagueReview?.week != selectedWeek {
+                await syncLeagueReview()
+            }
+            guard leagueReview != nil else {
+                errorMessage = "Sync league data first."
+                return
+            }
+            isGeneratingLeagueSummary = true
+        }
+        defer {
+            isGeneratingTeamSummary = false
+            isGeneratingLeagueSummary = false
+        }
+
+        do {
+            let llm = LLMClient(provider: llmSettings.provider, model: llmSettings.model, apiKey: apiKey)
+            let document = try await WeekSummaryService.generate(
+                kind: kind,
+                linked: linked,
+                week: selectedWeek,
+                team: team,
+                league: leagueReview,
+                llm: llm,
+                modelLabel: llmSettings.selectedModelLabel
+            )
+            let body = try WeekSummaryDocumentCodec.encode(document)
+            persistSummary(
+                kind: kind,
+                linked: linked,
+                week: selectedWeek,
+                body: body,
+                modelLabel: llmSettings.selectedModelLabel
+            )
+            refreshCachedSummaries()
+            log("Saved \(kind.title) for week \(selectedWeek)")
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func loadCachedSummary(kind: WeekSummaryKind) -> CachedWeekSummary? {
+        guard let linked = linkedFranchise, let context = modelContext else { return nil }
+        let id = PersistedWeekSummary.makeId(
+            kind: kind,
+            leagueId: linked.leagueId,
+            franchiseId: linked.franchiseId,
+            season: linked.season,
+            week: selectedWeek
+        )
+        var descriptor = FetchDescriptor<PersistedWeekSummary>(
+            predicate: #Predicate { $0.id == id }
+        )
+        descriptor.fetchLimit = 1
+        guard let row = try? context.fetch(descriptor).first else { return nil }
+        return CachedWeekSummary(
+            id: row.id,
+            kind: row.kind,
+            week: row.week,
+            body: row.body,
+            modelLabel: row.modelLabel,
+            createdAt: row.createdAt
+        )
+    }
+
+    private func persistSummary(
+        kind: WeekSummaryKind,
+        linked: LinkedFranchise,
+        week: Int,
+        body: String,
+        modelLabel: String
+    ) {
+        guard let context = modelContext else { return }
+        let id = PersistedWeekSummary.makeId(
+            kind: kind,
+            leagueId: linked.leagueId,
+            franchiseId: linked.franchiseId,
+            season: linked.season,
+            week: week
+        )
+        // Race-safe: if another write landed, keep the first.
+        var descriptor = FetchDescriptor<PersistedWeekSummary>(
+            predicate: #Predicate { $0.id == id }
+        )
+        descriptor.fetchLimit = 1
+        if let existing = try? context.fetch(descriptor).first {
+            _ = existing
+            return
+        }
+        let row = PersistedWeekSummary(
+            kind: kind,
+            leagueId: linked.leagueId,
+            franchiseId: linked.franchiseId,
+            season: linked.season,
+            week: week,
+            body: body,
+            modelLabel: modelLabel
+        )
+        context.insert(row)
+        try? context.save()
     }
 
     func connectMFL(username: String, password: String) async throws -> [MFLLeagueSummary] {

@@ -4,6 +4,7 @@ struct LeagueReviewView: View {
     @EnvironmentObject private var appState: AppState
     @State private var transactionFilter: TransactionTypeFilter = .all
     @State private var teamFilterId: String? = nil
+    @State private var showWeekSummary = false
 
     var body: some View {
         NavigationStack {
@@ -64,6 +65,10 @@ struct LeagueReviewView: View {
                     self.teamFilterId = nil
                 }
             }
+            .sheet(isPresented: $showWeekSummary) {
+                WeekSummarySheet(kind: .league)
+                    .environmentObject(appState)
+            }
         }
     }
 
@@ -71,9 +76,26 @@ struct LeagueReviewView: View {
         LeaguePageHeader(
             leagueName: appState.linkedFranchise?.leagueName ?? "League",
             subtitle: "Week \(appState.selectedWeek) overview",
-            trailing: appState.isLoadingLeague ? AnyView(ProgressView()) : nil,
-            footnote: nil
+            trailing: AnyView(headerTrailing),
+            footnote: appState.weekKindLabel
         )
+    }
+
+    @ViewBuilder
+    private var headerTrailing: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            if appState.isViewingHistoricWeek {
+                WeekSummaryLink(isGenerating: appState.isGeneratingLeagueSummary) {
+                    showWeekSummary = true
+                }
+            }
+            HStack(spacing: 10) {
+                if appState.isLoadingLeague {
+                    ProgressView()
+                }
+                WeekPickerControl()
+            }
+        }
     }
 
     private var standingsSection: some View {

@@ -51,18 +51,23 @@ enum TeamSyncService {
             host: host, season: season, type: "weeklyResults", leagueId: leagueId,
             extra: ["W": String(currentWeek)], cacheTTL: 60
         )
-        // Live totals for the current week — schedule often has empty scores until finals.
+        // Live totals + per-player scores (DETAILS=1 includes bench).
         async let liveScoringData = try? await client.exportJSON(
             host: host, season: season, type: "liveScoring", leagueId: leagueId,
-            extra: ["W": String(currentWeek)], cacheTTL: 30
+            extra: ["W": String(currentWeek), "DETAILS": "1"], cacheTTL: 30
+        )
+        // Final / prelim week scores — fills gaps once games post.
+        async let playerScoresData = try? await client.exportJSON(
+            host: host, season: season, type: "playerScores", leagueId: leagueId,
+            extra: ["W": String(currentWeek)], cacheTTL: 120
         )
         async let nflScheduleData = try? await NFLScheduleService.fetchData(season: season, week: currentWeek)
         async let salariesData = try? await client.exportJSON(
             host: host, season: season, type: "salaries", leagueId: leagueId, cacheTTL: 300
         )
 
-        let (rosters, players, projections, schedule, standings, weeklyResults, liveScoring, nflSchedule, salaries) = try await (
-            rostersData, playersData, projectionsData, scheduleData, standingsData, weeklyResultsData, liveScoringData, nflScheduleData, salariesData
+        let (rosters, players, projections, schedule, standings, weeklyResults, liveScoring, playerScores, nflSchedule, salaries) = try await (
+            rostersData, playersData, projectionsData, scheduleData, standingsData, weeklyResultsData, liveScoringData, playerScoresData, nflScheduleData, salariesData
         )
         let playerMap = parsePlayers(players)
         let injuryMap = parseInjuries(players)
@@ -95,6 +100,25 @@ enum TeamSyncService {
         bench = NFLScheduleService.annotate(bench, games: teamGames)
         ir = NFLScheduleService.annotate(ir, games: teamGames)
         taxi = NFLScheduleService.annotate(taxi, games: teamGames)
+
+        var actualMap: [String: Double] = [:]
+        if let playerScores {
+            for (id, score) in parseProjections(playerScores) {
+                actualMap[id] = score
+                actualMap[MFLNameResolver.normalizePlayerId(id)] = score
+            }
+        }
+        if let liveScoring {
+            for (id, score) in parseLivePlayerScores(liveScoring) {
+                actualMap[id] = score
+                actualMap[MFLNameResolver.normalizePlayerId(id)] = score
+            }
+        }
+        starters = applyActualPoints(starters, actuals: actualMap)
+        bench = applyActualPoints(bench, actuals: actualMap)
+        ir = applyActualPoints(ir, actuals: actualMap)
+        taxi = applyActualPoints(taxi, actuals: actualMap)
+
         let matchup = MFLMatchupScores.snapshot(
             for: franchiseId,
             liveScoring: liveScoring,
@@ -340,6 +364,52 @@ enum TeamSyncService {
             else if let v = row["score"] as? Double { map[id] = v }
         }
         return map
+    }
+
+    /// Per-player live/final fantasy points from `liveScoring` (DETAILS=1).
+    private static func parseLivePlayerScores(_ data: Data) -> [String: Double] {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        let live = (root["liveScoring"] as? [String: Any]) ?? root
+        var map: [String: Double] = [:]
+
+        func ingestPlayerRows(_ any: Any?) {
+            for row in arrayOfDicts(any) {
+                // Franchise nodes nest players — skip those containers.
+                if row["players"] != nil { continue }
+                if row["player"] is [[String: Any]] || row["player"] is [String: Any] { continue }
+                guard let id = row["id"] as? String ?? (row["id"] as? Int).map(String.init),
+                      let score = doubleValue(row["score"]) else { continue }
+                let nid = MFLNameResolver.normalizePlayerId(id)
+                map[nid] = score
+                map[id] = score
+            }
+        }
+
+        func walkFranchise(_ franchise: [String: Any]) {
+            let playersNode = franchise["players"] as? [String: Any]
+            ingestPlayerRows(playersNode?["player"] ?? franchise["player"])
+        }
+
+        for matchup in arrayOfDicts(live["matchup"]) {
+            for franchise in arrayOfDicts(matchup["franchise"]) {
+                walkFranchise(franchise)
+            }
+        }
+        for franchise in arrayOfDicts(live["franchise"]) {
+            walkFranchise(franchise)
+        }
+        return map
+    }
+
+    private static func applyActualPoints(
+        _ players: [RosterPlayer],
+        actuals: [String: Double]
+    ) -> [RosterPlayer] {
+        players.map { player in
+            let nid = MFLNameResolver.normalizePlayerId(player.playerId)
+            guard let score = actuals[nid] ?? actuals[player.playerId] else { return player }
+            return player.replacing(actualPoints: score)
+        }
     }
 
     private static func parseRoster(

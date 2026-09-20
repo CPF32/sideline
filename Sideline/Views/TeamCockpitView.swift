@@ -2,6 +2,8 @@ import SwiftUI
 
 struct TeamCockpitView: View {
     @EnvironmentObject private var appState: AppState
+    @State private var selectedPlayer: RosterPlayer?
+    @State private var showWeekSummary = false
 
     var body: some View {
         NavigationStack {
@@ -58,6 +60,14 @@ struct TeamCockpitView: View {
                     await appState.syncTeam()
                 }
             }
+            .sheet(item: $selectedPlayer) { player in
+                PlayerDetailSheet(player: player)
+                    .environmentObject(appState)
+            }
+            .sheet(isPresented: $showWeekSummary) {
+                WeekSummarySheet(kind: .team)
+                    .environmentObject(appState)
+            }
         }
     }
 
@@ -77,15 +87,21 @@ struct TeamCockpitView: View {
 
     private var headerTrailing: AnyView? {
         if appState.linkedFranchise == nil { return nil }
-        if appState.isSyncing {
-            return AnyView(
-                HStack(spacing: 10) {
-                    ProgressView()
-                    weekMenu
+        return AnyView(
+            VStack(alignment: .trailing, spacing: 4) {
+                if appState.isViewingHistoricWeek {
+                    WeekSummaryLink(isGenerating: appState.isGeneratingTeamSummary) {
+                        showWeekSummary = true
+                    }
                 }
-            )
-        }
-        return AnyView(weekMenu)
+                HStack(spacing: 10) {
+                    if appState.isSyncing {
+                        ProgressView()
+                    }
+                    WeekPickerControl()
+                }
+            }
+        )
     }
 
     private var teamSubtitle: String {
@@ -116,38 +132,6 @@ struct TeamCockpitView: View {
             return trimmed
         }
         return appState.linkedFranchise == nil ? "Connect MFL to begin" : "My team"
-    }
-
-    private var weekMenu: some View {
-        Menu {
-            ForEach(appState.availableWeeks.reversed(), id: \.self) { week in
-                Button {
-                    appState.selectWeek(week)
-                } label: {
-                    HStack {
-                        Text("Week \(week)")
-                        if week == appState.selectedWeek {
-                            Image(systemName: "checkmark")
-                        }
-                        if week < appState.currentSeasonWeek {
-                            Text("Historic")
-                        } else if week > appState.currentSeasonWeek {
-                            Text("Upcoming")
-                        } else {
-                            Text("Current")
-                        }
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Text("WEEK \(appState.selectedWeek)")
-                    .font(BrandTheme.display(14, weight: .semibold))
-                Image(systemName: "chevron.down")
-                    .font(.caption.weight(.semibold))
-            }
-            .foregroundStyle(BrandTheme.ink)
-        }
     }
 
     private var showsSalaryStrip: Bool {
@@ -318,7 +302,7 @@ struct TeamCockpitView: View {
                 ForEach(taxiPlayers.sorted {
                     $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
                 }) { player in
-                    PlayerRow(player: player, isStarter: false)
+                    PlayerRow(player: player) { selectedPlayer = player }
                 }
             } else {
                 ForEach(groups.filter { $0.key != "TIEBREAK" && !$0.players.isEmpty }) { group in
@@ -331,7 +315,7 @@ struct TeamCockpitView: View {
                         .padding(.bottom, BrandTheme.space(4))
 
                     ForEach(Array(group.players.enumerated()), id: \.element.id) { index, player in
-                        PlayerRow(player: player, isStarter: false)
+                        PlayerRow(player: player) { selectedPlayer = player }
                         if index < group.players.count - 1 {
                             Rectangle()
                                 .fill(BrandTheme.hairline)
@@ -387,7 +371,7 @@ struct TeamCockpitView: View {
                     .padding(.bottom, BrandTheme.space(4))
 
                     ForEach(Array(group.players.enumerated()), id: \.element.id) { index, player in
-                        PlayerRow(player: player, isStarter: false)
+                        PlayerRow(player: player) { selectedPlayer = player }
                         if index < group.players.count - 1 {
                             Rectangle()
                                 .fill(BrandTheme.hairline)
@@ -416,13 +400,17 @@ struct TeamCockpitView: View {
         // Starters: show discrete positions only (alphabetical within each), skip empty Tiebreak.
         let displayGroups = groups.filter { $0.key != "TIEBREAK" && !$0.players.isEmpty }
         return VStack(alignment: .leading, spacing: 0) {
-            Text("STARTERS")
-                .font(BrandTheme.display(13, weight: .semibold))
-                .foregroundStyle(BrandTheme.muted)
-                .tracking(1)
-                .padding(.horizontal, BrandTheme.pageGutter)
-                .padding(.top, BrandTheme.space(16))
-                .padding(.bottom, BrandTheme.space(8))
+            HStack(alignment: .firstTextBaseline) {
+                Text("STARTERS")
+                    .font(BrandTheme.display(13, weight: .semibold))
+                    .foregroundStyle(BrandTheme.muted)
+                    .tracking(1)
+                Spacer(minLength: 8)
+                pointsLegend
+            }
+            .padding(.horizontal, BrandTheme.pageGutter)
+            .padding(.top, BrandTheme.space(16))
+            .padding(.bottom, BrandTheme.space(8))
 
             if starters.isEmpty {
                 Text("No players")
@@ -434,7 +422,7 @@ struct TeamCockpitView: View {
                 ForEach(starters.sorted {
                     $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
                 }) { player in
-                    PlayerRow(player: player, isStarter: true)
+                    PlayerRow(player: player) { selectedPlayer = player }
                 }
             } else {
                 ForEach(displayGroups) { group in
@@ -447,7 +435,7 @@ struct TeamCockpitView: View {
                         .padding(.bottom, BrandTheme.space(4))
 
                     ForEach(Array(group.players.enumerated()), id: \.element.id) { index, player in
-                        PlayerRow(player: player, isStarter: true)
+                        PlayerRow(player: player) { selectedPlayer = player }
                         if index < group.players.count - 1 {
                             Rectangle()
                                 .fill(BrandTheme.hairline)
@@ -478,7 +466,7 @@ struct TeamCockpitView: View {
                     .padding(.bottom, BrandTheme.space(12))
             } else {
                 ForEach(Array(players.enumerated()), id: \.element.id) { index, player in
-                    PlayerRow(player: player, isStarter: title == "Starters")
+                    PlayerRow(player: player) { selectedPlayer = player }
                     if index < players.count - 1 {
                         Rectangle()
                             .fill(BrandTheme.hairline)
@@ -486,6 +474,27 @@ struct TeamCockpitView: View {
                             .padding(.leading, BrandTheme.pageGutter)
                     }
                 }
+            }
+        }
+    }
+
+    private var pointsLegend: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(BrandTheme.muted.opacity(0.55))
+                    .frame(width: 6, height: 6)
+                Text("proj")
+                    .font(BrandTheme.body(11, weight: .medium))
+                    .foregroundStyle(BrandTheme.muted)
+            }
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(BrandTheme.accent)
+                    .frame(width: 6, height: 6)
+                Text("live")
+                    .font(BrandTheme.body(11, weight: .medium))
+                    .foregroundStyle(BrandTheme.muted)
             }
         }
     }
@@ -501,64 +510,70 @@ struct TeamCockpitView: View {
 
 struct PlayerRow: View {
     let player: RosterPlayer
-    var isStarter: Bool
+    var onSelect: (() -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 12) {
-            Text(player.position)
-                .font(BrandTheme.body(12, weight: .semibold))
-                .foregroundStyle(BrandTheme.muted)
-                .frame(width: BrandTheme.space(36), alignment: .leading)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(player.name)
-                    .font(BrandTheme.body(15, weight: .medium))
-                    .foregroundStyle(BrandTheme.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                HStack(spacing: 6) {
-                    if !player.team.isEmpty {
-                        Text(player.team)
-                            .font(BrandTheme.body(12))
-                            .foregroundStyle(BrandTheme.muted)
-                    }
-                    if let opp = player.opponent, !opp.isEmpty {
-                        Text(opp)
-                            .font(BrandTheme.body(12))
-                            .foregroundStyle(BrandTheme.muted)
-                    }
-                    if let lock = player.gameLockState, lock != "upcoming", !lock.isEmpty {
-                        Text(lock.uppercased())
-                            .font(BrandTheme.body(10, weight: .semibold))
-                            .foregroundStyle(BrandTheme.ink.opacity(0.65))
-                    }
-                    if let injury = player.injuryStatus, !injury.isEmpty {
-                        Text(injury)
-                            .font(BrandTheme.body(11, weight: .semibold))
-                            .foregroundStyle(BrandTheme.ink.opacity(0.7))
-                    }
-                }
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 2) {
-                if let salary = player.salary {
-                    Text(SalaryFormat.compact(salary))
-                        .font(BrandTheme.mono(12, weight: .medium))
-                        .foregroundStyle(BrandTheme.muted)
-                }
-                if let proj = player.projectedPoints {
-                    Text(String(format: "%.1f", proj))
-                        .font(BrandTheme.mono(14, weight: .medium))
+        Button {
+            onSelect?()
+        } label: {
+            HStack(spacing: 12) {
+                Text(player.position)
+                    .font(BrandTheme.body(12, weight: .semibold))
+                    .foregroundStyle(BrandTheme.muted)
+                    .frame(width: BrandTheme.space(36), alignment: .leading)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(player.name)
+                        .font(BrandTheme.body(15, weight: .medium))
                         .foregroundStyle(BrandTheme.ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                    HStack(spacing: 6) {
+                        if !player.team.isEmpty {
+                            Text(player.team)
+                                .font(BrandTheme.body(12))
+                                .foregroundStyle(BrandTheme.muted)
+                        }
+                        if let opp = player.opponent, !opp.isEmpty {
+                            Text(opp)
+                                .font(BrandTheme.body(12))
+                                .foregroundStyle(BrandTheme.muted)
+                        }
+                        if let lock = player.gameLockState, lock != "upcoming", !lock.isEmpty {
+                            Text(lock.uppercased())
+                                .font(BrandTheme.body(10, weight: .semibold))
+                                .foregroundStyle(BrandTheme.ink.opacity(0.65))
+                        }
+                        if let injury = player.injuryStatus, !injury.isEmpty {
+                            Text(injury)
+                                .font(BrandTheme.body(11, weight: .semibold))
+                                .foregroundStyle(BrandTheme.ink.opacity(0.7))
+                        }
+                    }
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    if let salary = player.salary {
+                        Text(SalaryFormat.compact(salary))
+                            .font(BrandTheme.mono(12, weight: .medium))
+                            .foregroundStyle(BrandTheme.muted)
+                    }
+                    if let points = player.displayWeekPoints {
+                        HStack(spacing: 6) {
+                            Text(String(format: "%.1f", points.value))
+                                .font(BrandTheme.mono(14, weight: .medium))
+                                .foregroundStyle(BrandTheme.ink)
+                            Circle()
+                                .fill(points.isLive ? BrandTheme.accent : BrandTheme.muted.opacity(0.55))
+                                .frame(width: 7, height: 7)
+                        }
+                    }
                 }
             }
-            if isStarter {
-                Circle()
-                    .fill(BrandTheme.accent)
-                    .frame(width: BrandTheme.space(8), height: BrandTheme.space(8))
-            }
+            .padding(.horizontal, BrandTheme.pageGutter)
+            .padding(.vertical, BrandTheme.space(12))
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, BrandTheme.pageGutter)
-        .padding(.vertical, BrandTheme.space(12))
-        .contentShape(Rectangle())
+        .buttonStyle(.plain)
+        .accessibilityHint("Shows player details")
     }
 }
