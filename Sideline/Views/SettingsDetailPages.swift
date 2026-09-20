@@ -1,0 +1,756 @@
+import SwiftUI
+import SwiftData
+import UIKit
+
+// MARK: - Shared chrome
+
+private struct SettingsPageChrome<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ZStack {
+            SidelineBackground()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    content
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                .padding(.bottom, 40)
+            }
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private func fieldShell<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    content()
+        .font(BrandTheme.body(16))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                .fill(BrandTheme.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                        .stroke(BrandTheme.hairline, lineWidth: 1)
+                )
+        )
+}
+
+private func labeledField<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+        Text(title.uppercased())
+            .font(BrandTheme.display(11, weight: .semibold))
+            .tracking(1)
+            .foregroundStyle(BrandTheme.muted)
+        content()
+    }
+}
+
+// MARK: - Pages
+
+struct AccountSettingsPage: View {
+    @EnvironmentObject private var appState: AppState
+
+    var body: some View {
+        SettingsPageChrome(title: "Account") {
+            Text(appState.auth.displayName.isEmpty ? "Manager" : appState.auth.displayName)
+                .font(BrandTheme.display(28, weight: .bold))
+                .foregroundStyle(BrandTheme.ink)
+            Text("Signed in on this device. League and API credentials stay local.")
+                .font(BrandTheme.body(14))
+                .foregroundStyle(BrandTheme.muted)
+        }
+    }
+}
+
+struct ThemeSettingsPage: View {
+    @AppStorage("sideline.appearance.darkMode") private var isDarkMode = false
+
+    var body: some View {
+        SettingsPageChrome(title: "Theme") {
+            Toggle(isOn: $isDarkMode) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Dark mode")
+                        .font(BrandTheme.body(16, weight: .semibold))
+                        .foregroundStyle(BrandTheme.ink)
+                    Text(isDarkMode ? "Entire app uses dark colors." : "Entire app uses light colors.")
+                        .font(BrandTheme.body(13))
+                        .foregroundStyle(BrandTheme.muted)
+                }
+            }
+            .tint(BrandTheme.accent)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                    .fill(BrandTheme.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                            .stroke(BrandTheme.hairline, lineWidth: 1)
+                    )
+            )
+
+            Text("Sideline ignores the system light/dark setting. Everything — backgrounds, text, chrome, and controls — follows this toggle.")
+                .font(BrandTheme.body(13))
+                .foregroundStyle(BrandTheme.muted)
+        }
+    }
+}
+
+struct LeagueSettingsPage: View {
+    @EnvironmentObject private var appState: AppState
+
+    var body: some View {
+        SettingsPageChrome(title: "League") {
+            if let linked = appState.linkedFranchise {
+                meta("League", linked.leagueName)
+                meta("Franchise", linked.franchiseName)
+                meta("Season", "\(linked.season)")
+                meta("Host", linked.host)
+            } else {
+                Text("No league linked.")
+                    .foregroundStyle(BrandTheme.muted)
+            }
+            Button {
+                appState.showConnect = true
+            } label: {
+                Text(appState.linkedFranchise == nil ? "Connect MFL" : "Switch MFL league")
+            }
+            .buttonStyle(PrimaryButtonStyle())
+        }
+    }
+
+    private func meta(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title.uppercased())
+                .font(BrandTheme.display(11, weight: .semibold))
+                .tracking(1)
+                .foregroundStyle(BrandTheme.muted)
+            Text(value)
+                .font(BrandTheme.body(16, weight: .medium))
+                .foregroundStyle(BrandTheme.ink)
+        }
+    }
+}
+
+struct ModelSettingsPage: View {
+    @EnvironmentObject private var appState: AppState
+    @ObservedObject var llm: LLMSettingsStore
+    @State private var saved = false
+    @State private var modelSearch = ""
+
+    private var filteredModels: [LLMModelOption] {
+        let all = llm.pickerModels
+        let q = modelSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return all }
+        return all.filter {
+            $0.id.localizedCaseInsensitiveContains(q)
+                || $0.title.localizedCaseInsensitiveContains(q)
+        }
+    }
+
+    var body: some View {
+        SettingsPageChrome(title: "Model") {
+            labeledField("Provider") {
+                fieldShell {
+                    Picker("Provider", selection: $llm.provider) {
+                        ForEach(LLMProvider.allCases) { p in
+                            Text(p.displayName).tag(p)
+                        }
+                    }
+                    .labelsHidden()
+                    .tint(BrandTheme.ink)
+                }
+            }
+            .onChange(of: llm.provider) { _, newProvider in
+                modelSearch = ""
+                // Reset to this provider's default only when switching providers.
+                llm.model = newProvider.defaultModel
+                llm.reloadKeyDraft()
+                llm.refreshModels(preferCheapestIfInvalid: false)
+                saved = false
+            }
+
+            labeledField("Search models") {
+                fieldShell {
+                    TextField("Name or id…", text: $modelSearch)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+            }
+
+            labeledField("Model") {
+                VStack(alignment: .leading, spacing: 0) {
+                    if llm.isLoadingModels {
+                        HStack {
+                            ProgressView()
+                            Text("Loading live models…")
+                                .font(BrandTheme.body(14))
+                                .foregroundStyle(BrandTheme.muted)
+                            Spacer()
+                        }
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 14)
+                    } else if filteredModels.isEmpty {
+                        Text(modelSearch.isEmpty ? "No models loaded." : "No models match “\(modelSearch)”.")
+                            .font(BrandTheme.body(14))
+                            .foregroundStyle(BrandTheme.muted)
+                            .padding(.vertical, 12)
+                            .padding(.horizontal, 14)
+                    } else {
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 0) {
+                                ForEach(filteredModels) { option in
+                                    Button {
+                                        llm.model = option.id
+                                        saved = false
+                                    } label: {
+                                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(option.title)
+                                                    .font(BrandTheme.body(14, weight: llm.model == option.id ? .semibold : .medium))
+                                                    .foregroundStyle(BrandTheme.ink)
+                                                    .multilineTextAlignment(.leading)
+                                                Text(option.id)
+                                                    .font(BrandTheme.mono(11))
+                                                    .foregroundStyle(BrandTheme.muted)
+                                                    .lineLimit(1)
+                                            }
+                                            Spacer(minLength: 8)
+                                            Text(option.costLabel)
+                                                .font(BrandTheme.body(12, weight: .medium))
+                                                .foregroundStyle(BrandTheme.muted)
+                                            if llm.model == option.id {
+                                                Image(systemName: "checkmark")
+                                                    .font(.system(size: 12, weight: .bold))
+                                                    .foregroundStyle(BrandTheme.ink)
+                                            }
+                                        }
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 10)
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    Rectangle()
+                                        .fill(BrandTheme.hairline)
+                                        .frame(height: 1)
+                                        .padding(.leading, 14)
+                                }
+                            }
+                        }
+                        .frame(maxHeight: 280)
+                    }
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                        .fill(BrandTheme.surface)
+                )
+            }
+            .onChange(of: llm.model) { _, _ in
+                saved = false
+            }
+
+            Text(llm.modelsSourceLabel)
+                .font(BrandTheme.body(12))
+                .foregroundStyle(BrandTheme.muted)
+
+            Text(llm.provider.setupHint)
+                .font(BrandTheme.body(12))
+                .foregroundStyle(BrandTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                llm.refreshModels()
+            } label: {
+                Text(llm.isLoadingModels ? "Refreshing…" : "Refresh live models")
+            }
+            .buttonStyle(SecondaryButtonStyle())
+            .disabled(llm.isLoadingModels)
+
+            Button {
+                UserDefaults.standard.set(llm.model, forKey: "sideline.llm.model")
+                saved = true
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } label: {
+                Text(saved ? "Saved" : "Save model")
+            }
+            .buttonStyle(PrimaryButtonStyle())
+        }
+        .task {
+            llm.refreshModels()
+        }
+    }
+}
+
+struct APIKeySettingsPage: View {
+    @ObservedObject var llm: LLMSettingsStore
+    @State private var banner: String?
+    @State private var bannerError = false
+
+    var body: some View {
+        SettingsPageChrome(title: "API key") {
+            if let banner {
+                Text(banner)
+                    .font(BrandTheme.body(14, weight: .medium))
+                    .foregroundStyle(bannerError ? BrandTheme.danger : BrandTheme.ink)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(bannerError ? BrandTheme.danger.opacity(0.18) : BrandTheme.accentWash)
+                    .clipShape(RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous))
+            }
+
+            labeledField(llm.provider.displayName) {
+                fieldShell {
+                    SecureField("Paste API key", text: $llm.apiKeyDraft)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+            }
+
+            Text(llm.maskedKeyHint)
+                .font(BrandTheme.body(13))
+                .foregroundStyle(BrandTheme.muted)
+
+            Button {
+                let ok = llm.saveAPIKey()
+                banner = llm.keySaveMessage
+                bannerError = !ok
+                UINotificationFeedbackGenerator().notificationOccurred(ok ? .success : .error)
+            } label: {
+                Text("Save API key")
+            }
+            .buttonStyle(PrimaryButtonStyle())
+        }
+    }
+}
+
+struct TeamGoalsSettingsPage: View {
+    @EnvironmentObject private var appState: AppState
+    @State private var saved = false
+
+    var body: some View {
+        SettingsPageChrome(title: "Team goals") {
+            Text("Shared context for every agent desk.")
+                .font(BrandTheme.body(14))
+                .foregroundStyle(BrandTheme.muted)
+
+            labeledField("Season goals") {
+                fieldShell {
+                    TextField(
+                        "e.g. Win the championship, upgrade RB2, protect FAAB",
+                        text: $appState.agentCriteria.teamGoals,
+                        axis: .vertical
+                    )
+                    .lineLimit(4...8)
+                }
+            }
+
+            Button {
+                appState.saveAgentCriteria()
+                saved = true
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } label: {
+                Text(saved ? "Saved" : "Save goals")
+            }
+            .buttonStyle(PrimaryButtonStyle())
+        }
+    }
+}
+
+struct AgentCriteriaListPage: View {
+    var body: some View {
+        ZStack {
+            SidelineBackground()
+            List {
+                NavigationLink("Lineup desk") { LineupCriteriaPage() }
+                NavigationLink("Waiver / FA desk") { WaiverCriteriaPage() }
+                NavigationLink("Trade desk") { TradeCriteriaPage() }
+                NavigationLink("Draft desk") { DraftCriteriaPage() }
+            }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+        }
+        .navigationTitle("Agent criteria")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct LineupCriteriaPage: View {
+    @EnvironmentObject private var appState: AppState
+    @State private var saved = false
+
+    var body: some View {
+        SettingsPageChrome(title: "Lineup") {
+            Text("Builds a legal week lineup from league starter slots, respects game locks (won't newly start players who already played), and adjusts IR/taxi when needed.")
+                .font(BrandTheme.body(13))
+                .foregroundStyle(BrandTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            criteriaEditor(
+                goal: $appState.agentCriteria.lineup.goal,
+                risk: $appState.agentCriteria.lineup.riskTolerance,
+                notes: $appState.agentCriteria.lineup.notes
+            )
+            Toggle("Prefer ceiling over floor", isOn: $appState.agentCriteria.lineup.preferCeiling)
+                .tint(BrandTheme.accent)
+            Toggle("Avoid questionable starts", isOn: $appState.agentCriteria.lineup.avoidQuestionable)
+                .tint(BrandTheme.accent)
+            labeledField("Stack preference") {
+                fieldShell {
+                    TextField("Optional", text: $appState.agentCriteria.lineup.stackPreference)
+                }
+            }
+            saveButton
+        }
+    }
+
+    private var saveButton: some View {
+        Button {
+            appState.saveAgentCriteria()
+            saved = true
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        } label: { Text(saved ? "Saved" : "Save lineup criteria") }
+        .buttonStyle(PrimaryButtonStyle())
+    }
+}
+
+struct WaiverCriteriaPage: View {
+    @EnvironmentObject private var appState: AppState
+    @State private var saved = false
+
+    var body: some View {
+        SettingsPageChrome(title: "Waivers") {
+            Text("Uses league-relative positional strength (weak vs strong by position), roster setup, and top free agents (YTD + last week) to propose concrete add/drops.")
+                .font(BrandTheme.body(13))
+                .foregroundStyle(BrandTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            criteriaEditor(
+                goal: $appState.agentCriteria.waiver.goal,
+                risk: $appState.agentCriteria.waiver.riskTolerance,
+                notes: $appState.agentCriteria.waiver.notes
+            )
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Max FAAB % of budget: \(Int(appState.agentCriteria.waiver.maxFAABPercent))%")
+                    .font(BrandTheme.body(14))
+                Slider(value: $appState.agentCriteria.waiver.maxFAABPercent, in: 0...100, step: 5)
+                    .tint(BrandTheme.accent)
+            }
+            Toggle("Prioritize need over best available", isOn: $appState.agentCriteria.waiver.prioritizeNeedOverBestAvailable)
+                .tint(BrandTheme.accent)
+            Toggle("Stash handcuffs", isOn: $appState.agentCriteria.waiver.stashHandcuffs)
+                .tint(BrandTheme.accent)
+            Button {
+                appState.saveAgentCriteria()
+                saved = true
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } label: { Text(saved ? "Saved" : "Save waiver criteria") }
+            .buttonStyle(PrimaryButtonStyle())
+        }
+    }
+}
+
+struct TradeCriteriaPage: View {
+    @EnvironmentObject private var appState: AppState
+    @State private var saved = false
+
+    var body: some View {
+        SettingsPageChrome(title: "Trades") {
+            Text("Uses positional strength vs the league plus draft pick assets to propose player and/or pick trades.")
+                .font(BrandTheme.body(13))
+                .foregroundStyle(BrandTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            criteriaEditor(
+                goal: $appState.agentCriteria.trade.goal,
+                risk: $appState.agentCriteria.trade.riskTolerance,
+                notes: $appState.agentCriteria.trade.notes
+            )
+            labeledField("Mode") {
+                fieldShell {
+                    Picker("Mode", selection: $appState.agentCriteria.trade.contendMode) {
+                        ForEach(ContendMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .tint(BrandTheme.ink)
+                }
+            }
+            Toggle("Prefer sideways moves over panic sells", isOn: $appState.agentCriteria.trade.preferSidewaysOverPanic)
+                .tint(BrandTheme.accent)
+            labeledField("Target positions") {
+                fieldShell {
+                    TextField("e.g. RB depth, WR1", text: $appState.agentCriteria.trade.targetPositions)
+                }
+            }
+            Button {
+                appState.saveAgentCriteria()
+                saved = true
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } label: { Text(saved ? "Saved" : "Save trade criteria") }
+            .buttonStyle(PrimaryButtonStyle())
+        }
+    }
+}
+
+struct DraftCriteriaPage: View {
+    @EnvironmentObject private var appState: AppState
+    @State private var saved = false
+
+    var body: some View {
+        SettingsPageChrome(title: "Draft") {
+            Text("Advises the next pick from remaining needs and early/late round bias.")
+                .font(BrandTheme.body(13))
+                .foregroundStyle(BrandTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            criteriaEditor(
+                goal: $appState.agentCriteria.draft.goal,
+                risk: $appState.agentCriteria.draft.riskTolerance,
+                notes: $appState.agentCriteria.draft.notes
+            )
+            labeledField("Early rounds") {
+                fieldShell {
+                    TextField("Bias", text: $appState.agentCriteria.draft.earlyRoundBias, axis: .vertical)
+                        .lineLimit(2...4)
+                }
+            }
+            labeledField("Late rounds") {
+                fieldShell {
+                    TextField("Bias", text: $appState.agentCriteria.draft.lateRoundBias, axis: .vertical)
+                        .lineLimit(2...4)
+                }
+            }
+            Button {
+                appState.saveAgentCriteria()
+                saved = true
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } label: { Text(saved ? "Saved" : "Save draft criteria") }
+            .buttonStyle(PrimaryButtonStyle())
+        }
+    }
+}
+
+struct DesksSettingsPage: View {
+    @EnvironmentObject private var appState: AppState
+    @State private var saved = false
+
+    var body: some View {
+        SettingsPageChrome(title: "Agent desks") {
+            Toggle("Lineup desk", isOn: $appState.guardrails.lineupDeskEnabled)
+                .tint(BrandTheme.accent)
+            Toggle("Waiver / FA desk", isOn: $appState.guardrails.waiverDeskEnabled)
+                .tint(BrandTheme.accent)
+            Toggle("Trade desk", isOn: $appState.guardrails.tradeDeskEnabled)
+                .tint(BrandTheme.accent)
+            Toggle("Draft desk", isOn: $appState.guardrails.draftDeskEnabled)
+                .tint(BrandTheme.accent)
+
+            Button {
+                appState.agentCriteria.lineup.enabled = appState.guardrails.lineupDeskEnabled
+                appState.agentCriteria.waiver.enabled = appState.guardrails.waiverDeskEnabled
+                appState.agentCriteria.trade.enabled = appState.guardrails.tradeDeskEnabled
+                appState.agentCriteria.draft.enabled = appState.guardrails.draftDeskEnabled
+                appState.saveGuardrails()
+                appState.saveAgentCriteria()
+                saved = true
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } label: { Text(saved ? "Saved" : "Save desks") }
+            .buttonStyle(PrimaryButtonStyle())
+        }
+    }
+}
+
+struct LimitsSettingsPage: View {
+    @EnvironmentObject private var appState: AppState
+    @State private var saved = false
+
+    var body: some View {
+        SettingsPageChrome(title: "Limits") {
+            HStack {
+                Text("Max FAAB bid")
+                Spacer()
+                TextField("None", value: $appState.guardrails.maxFAABBid, format: .number)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 100)
+                    .padding(10)
+                    .background(
+                        RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                            .fill(BrandTheme.surface)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                                    .stroke(BrandTheme.hairline, lineWidth: 1)
+                            )
+                    )
+            }
+            Stepper(value: $appState.guardrails.stopHoursBeforeKickoff, in: 0...12, step: 1) {
+                Text("Stop \(Int(appState.guardrails.stopHoursBeforeKickoff))h before kickoff")
+            }
+            Text("Player lock lists (never bench / drop / trade) can be expanded next — IDs are stored in guardrails.")
+                .font(BrandTheme.body(13))
+                .foregroundStyle(BrandTheme.muted)
+
+            Button {
+                appState.saveGuardrails()
+                saved = true
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } label: { Text(saved ? "Saved" : "Save limits") }
+            .buttonStyle(PrimaryButtonStyle())
+        }
+    }
+}
+
+struct ActivitySettingsPage: View {
+    @Query(sort: \ActivityEvent.createdAt, order: .reverse) private var events: [ActivityEvent]
+
+    var body: some View {
+        SettingsPageChrome(title: "Activity") {
+            if events.isEmpty {
+                Text("No activity yet")
+                    .foregroundStyle(BrandTheme.muted)
+            } else {
+                ForEach(events.prefix(40)) { event in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(event.message)
+                            .font(BrandTheme.body(14, weight: .medium))
+                        Text(event.createdAt.formatted(date: .abbreviated, time: .shortened))
+                            .font(BrandTheme.body(11))
+                            .foregroundStyle(BrandTheme.muted)
+                    }
+                    .padding(.vertical, 6)
+                    Divider().overlay(BrandTheme.hairline)
+                }
+            }
+        }
+    }
+}
+
+struct AboutDeveloperSettingsPage: View {
+    private static let venmoUsername = "CPF32"
+    private static let venmoURL = URL(string: "https://venmo.com/u/CPF32")!
+
+    @State private var copied = false
+
+    var body: some View {
+        SettingsPageChrome(title: "About") {
+            Text("Hey — I’m Chris")
+                .font(BrandTheme.display(26, weight: .bold))
+                .foregroundStyle(BrandTheme.ink)
+
+            Text(
+                """
+                I’m a software engineer who got stuck in an overly complicated league with my college friends. As a way to make life easier (and make sure I set a fairly competitive lineup every week), I created Sideline.
+
+                It’s totally free to use. If you want to buy me a cup of coffee, I’d appreciate it.
+                """
+            )
+            .font(BrandTheme.body(15))
+            .foregroundStyle(BrandTheme.ink)
+            .fixedSize(horizontal: false, vertical: true)
+
+            VStack(spacing: 14) {
+                Text("BUY ME A COFFEE")
+                    .font(BrandTheme.display(11, weight: .semibold))
+                    .tracking(1)
+                    .foregroundStyle(BrandTheme.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let qr = QRCodeImage.make(from: Self.venmoURL.absoluteString, dimension: 200) {
+                    Image(uiImage: qr)
+                        .interpolation(.none)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 200, height: 200)
+                        .padding(16)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous))
+                }
+
+                Text("Venmo @\(Self.venmoUsername)")
+                    .font(BrandTheme.body(18, weight: .semibold))
+                    .foregroundStyle(BrandTheme.ink)
+
+                HStack(spacing: 10) {
+                    Button {
+                        UIPasteboard.general.string = Self.venmoUsername
+                        copied = true
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    } label: {
+                        Text(copied ? "Copied" : "Copy username")
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+
+                    Link(destination: Self.venmoURL) {
+                        Text("Open Venmo")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                    .fill(BrandTheme.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                            .stroke(BrandTheme.hairline, lineWidth: 1)
+                    )
+            )
+        }
+    }
+}
+
+private enum QRCodeImage {
+    static func make(from string: String, dimension: CGFloat) -> UIImage? {
+        guard let data = string.data(using: .ascii),
+              let filter = CIFilter(name: "CIQRCodeGenerator")
+        else { return nil }
+        filter.setValue(data, forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let output = filter.outputImage else { return nil }
+        let scale = dimension / output.extent.width
+        let scaled = output.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let context = CIContext()
+        guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
+        return UIImage(cgImage: cgImage)
+    }
+}
+
+// MARK: - Shared criteria fields
+
+private func criteriaEditor(
+    goal: Binding<String>,
+    risk: Binding<RiskTolerance>,
+    notes: Binding<String>
+) -> some View {
+    VStack(alignment: .leading, spacing: 16) {
+        labeledField("Goal") {
+            fieldShell {
+                TextField("What should this desk optimize for?", text: goal, axis: .vertical)
+                    .lineLimit(3...6)
+            }
+        }
+        labeledField("Risk") {
+            fieldShell {
+                Picker("Risk", selection: risk) {
+                    ForEach(RiskTolerance.allCases) { r in
+                        Text(r.title).tag(r)
+                    }
+                }
+                .labelsHidden()
+                .tint(BrandTheme.ink)
+            }
+        }
+        labeledField("Notes") {
+            fieldShell {
+                TextField("Extra instructions", text: notes, axis: .vertical)
+                    .lineLimit(2...5)
+            }
+        }
+    }
+}

@@ -1,0 +1,217 @@
+import Foundation
+
+/// Live / weekly matchup scores. Prefer `liveScoring` (in-progress), then `weeklyResults`, then `schedule`.
+enum MFLMatchupScores {
+    struct Side {
+        let id: String
+        let score: Double?
+        let name: String?
+    }
+
+    struct Pair {
+        let home: Side
+        let away: Side
+    }
+
+    static func pairs(
+        liveScoring: Data?,
+        weeklyResults: Data?,
+        schedule: Data?,
+        week: Int,
+        names: [String: String]
+    ) -> [Pair] {
+        _ = week
+        let scoreMap = franchiseScores(liveScoring: liveScoring, weeklyResults: weeklyResults, schedule: schedule)
+        // Prefer schedule for who plays whom; scores overlay from live/weekly.
+        let rawPairs =
+            parsePairs(from: schedule, roots: ["schedule"])
+            ?? parsePairs(from: liveScoring, roots: ["liveScoring"])
+            ?? parsePairs(from: weeklyResults, roots: ["weeklyResults"])
+            ?? []
+
+        return rawPairs.map { pair in
+            let homeScore = scoreMap[pair.home.id] ?? pair.home.score
+            let awayScore = scoreMap[pair.away.id] ?? pair.away.score
+            return Pair(
+                home: Side(
+                    id: pair.home.id,
+                    score: homeScore,
+                    name: MFLNameResolver.franchiseName(id: pair.home.id, names: names, fallback: pair.home.name)
+                ),
+                away: Side(
+                    id: pair.away.id,
+                    score: awayScore,
+                    name: MFLNameResolver.franchiseName(id: pair.away.id, names: names, fallback: pair.away.name)
+                )
+            )
+        }
+    }
+
+    static func snapshot(
+        for franchiseId: String,
+        liveScoring: Data?,
+        weeklyResults: Data?,
+        schedule: Data?,
+        week: Int,
+        names: [String: String]
+    ) -> MatchupSnapshot {
+        let myId = MFLNameResolver.normalizeFranchiseId(franchiseId)
+        let all = pairs(
+            liveScoring: liveScoring,
+            weeklyResults: weeklyResults,
+            schedule: schedule,
+            week: week,
+            names: names
+        )
+        for pair in all {
+            if pair.home.id == myId {
+                return MatchupSnapshot(
+                    week: week,
+                    myScore: pair.home.score,
+                    oppScore: pair.away.score,
+                    opponentName: pair.away.name,
+                    lineupDeadline: nil
+                )
+            }
+            if pair.away.id == myId {
+                return MatchupSnapshot(
+                    week: week,
+                    myScore: pair.away.score,
+                    oppScore: pair.home.score,
+                    opponentName: pair.home.name,
+                    lineupDeadline: nil
+                )
+            }
+        }
+        // Opponent unknown, but we may still have our live score.
+        let scores = franchiseScores(liveScoring: liveScoring, weeklyResults: weeklyResults, schedule: schedule)
+        return MatchupSnapshot(week: week, myScore: scores[myId], oppScore: nil, opponentName: nil)
+    }
+
+    // MARK: - Score map
+
+    private static func franchiseScores(
+        liveScoring: Data?,
+        weeklyResults: Data?,
+        schedule: Data?
+    ) -> [String: Double] {
+        var map: [String: Double] = [:]
+        // Lowest priority first so live overwrites.
+        for data in [schedule, weeklyResults, liveScoring].compactMap({ $0 }) {
+            for (id, score) in collectScores(from: data) {
+                map[id] = score
+            }
+        }
+        return map
+    }
+
+    private static func collectScores(from data: Data) -> [String: Double] {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        var out: [String: Double] = [:]
+        collectFranchiseScores(in: root, into: &out)
+        return out
+    }
+
+    private static func collectFranchiseScores(in value: Any, into out: inout [String: Double]) {
+        if let dict = value as? [String: Any] {
+            let franchises = arrayOfDicts(dict["franchise"])
+            for franchise in franchises {
+                let raw = (franchise["id"] as? String) ?? (franchise["id"] as? Int).map(String.init) ?? ""
+                guard !raw.isEmpty, let score = scoreValue(franchise) else { continue }
+                out[MFLNameResolver.normalizeFranchiseId(raw)] = score
+            }
+            for (key, child) in dict where key != "player" {
+                collectFranchiseScores(in: child, into: &out)
+            }
+        } else if let arr = value as? [Any] {
+            for child in arr {
+                collectFranchiseScores(in: child, into: &out)
+            }
+        }
+    }
+
+    // MARK: - Pairings
+
+    private static func parsePairs(from data: Data?, roots: [String]) -> [Pair]? {
+        guard let data,
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+
+        var containers: [[String: Any]] = [root]
+        for key in roots {
+            if let nested = root[key] as? [String: Any] {
+                containers.append(nested)
+            }
+        }
+
+        for container in containers {
+            if let pairs = matchups(from: container), !pairs.isEmpty {
+                return pairs
+            }
+        }
+        return nil
+    }
+
+    private static func matchups(from container: [String: Any]) -> [Pair]? {
+        let matchupAny = (container["weeklySchedule"] as? [String: Any])?["matchup"]
+            ?? container["matchup"]
+            ?? (container["schedule"] as? [String: Any])?["matchup"]
+            ?? (container["schedule"] as? [String: Any]).flatMap { ($0["weeklySchedule"] as? [String: Any])?["matchup"] }
+
+        let matchupRows = arrayOfDicts(matchupAny)
+        if !matchupRows.isEmpty {
+            let pairs = matchupRows.compactMap { row -> Pair? in
+                let sides = arrayOfDicts(row["franchise"]).map(parseSide)
+                guard sides.count >= 2 else { return nil }
+                return Pair(home: sides[0], away: sides[1])
+            }
+            return pairs.isEmpty ? nil : pairs
+        }
+        return nil
+    }
+
+    private static func parseSide(_ row: [String: Any]) -> Side {
+        let raw = (row["id"] as? String) ?? (row["id"] as? Int).map(String.init) ?? ""
+        let id = MFLNameResolver.normalizeFranchiseId(raw)
+        return Side(id: id, score: scoreValue(row), name: row["name"] as? String)
+    }
+
+    private static func scoreValue(_ row: [String: Any]) -> Double? {
+        if let direct = doubleValue(row["score"] ?? row["pts"] ?? row["points"] ?? row["pf"]) {
+            return direct
+        }
+        let players = arrayOfDicts(row["player"])
+        guard !players.isEmpty else { return nil }
+        var total = 0.0
+        var any = false
+        for player in players {
+            let status = ((player["status"] as? String) ?? "").lowercased()
+            let isStarter = (status.contains("starter") && !status.contains("non"))
+                || status == "s"
+                || status.isEmpty
+            guard isStarter else { continue }
+            if let s = doubleValue(player["score"]) {
+                total += s
+                any = true
+            }
+        }
+        return any ? total : nil
+    }
+
+    private static func arrayOfDicts(_ any: Any?) -> [[String: Any]] {
+        if let arr = any as? [[String: Any]] { return arr }
+        if let one = any as? [String: Any] { return [one] }
+        return []
+    }
+
+    private static func doubleValue(_ any: Any?) -> Double? {
+        if let d = any as? Double { return d }
+        if let i = any as? Int { return Double(i) }
+        if let s = any as? String {
+            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty || trimmed == "-" { return nil }
+            return Double(trimmed)
+        }
+        return nil
+    }
+}

@@ -1,0 +1,130 @@
+import SwiftUI
+
+struct AgentsSheet: View {
+    @EnvironmentObject private var appState: AppState
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                SidelineBackground()
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(AgentDesk.allCases.enumerated()), id: \.element.id) { index, desk in
+                        Button {
+                            Task { await appState.runAgent(desk) }
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(desk.title)
+                                        .font(BrandTheme.body(16, weight: .semibold))
+                                        .foregroundStyle(BrandTheme.ink)
+                                    Text(desk.agentName)
+                                        .font(BrandTheme.body(12))
+                                        .foregroundStyle(BrandTheme.muted)
+                                }
+                                Spacer()
+                                if appState.isRunningAgent {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "chevron.right")
+                                        .foregroundStyle(BrandTheme.muted)
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 16)
+                            .padding(.top, index == 0 ? BrandTheme.tabContentTop : 0)
+                            .opacity(appState.isRunningAgent ? 0.55 : 1)
+                        }
+                        .disabled(appState.isRunningAgent)
+                        Rectangle()
+                            .fill(BrandTheme.hairline)
+                            .frame(height: 1)
+                            .padding(.leading, 20)
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                if appState.isRunningAgent || !appState.agentActivityLines.isEmpty {
+                    VStack {
+                        Spacer()
+                        agentLivePanel
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 16)
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: appState.isRunningAgent)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(BrandTheme.appName.uppercased())
+                        .font(BrandTheme.display(18, weight: .bold))
+                        .tracking(1)
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private var agentLivePanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                if appState.isRunningAgent {
+                    ProgressView()
+                        .tint(BrandTheme.onAccent)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(appState.isRunningAgent ? (appState.agentRunTitle ?? "Running agent") : "Last run")
+                        .font(BrandTheme.body(14, weight: .semibold))
+                        .foregroundStyle(BrandTheme.onAccent)
+                    if let status = appState.agentActivityStatus ?? appState.agentActivityLines.last?.text {
+                        Text(status)
+                            .font(BrandTheme.body(12))
+                            .foregroundStyle(BrandTheme.onAccent.opacity(0.85))
+                            .lineLimit(2)
+                    }
+                }
+                Spacer(minLength: 0)
+                if !appState.isRunningAgent, !appState.agentActivityLines.isEmpty {
+                    Button("Clear") {
+                        appState.agentActivityLines = []
+                    }
+                    .font(BrandTheme.body(12, weight: .semibold))
+                    .foregroundStyle(BrandTheme.onAccent)
+                }
+            }
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        ForEach(appState.agentActivityLines) { line in
+                            HStack(alignment: .top, spacing: 8) {
+                                Text(line.at.formatted(date: .omitted, time: .standard))
+                                    .font(BrandTheme.mono(10))
+                                    .foregroundStyle(BrandTheme.onAccent.opacity(0.55))
+                                    .frame(width: 64, alignment: .leading)
+                                Text(line.text)
+                                    .font(BrandTheme.body(12))
+                                    .foregroundStyle(BrandTheme.onAccent)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .id(line.id)
+                        }
+                    }
+                }
+                .frame(maxHeight: 140)
+                .onChange(of: appState.agentActivityLines.count) { _, _ in
+                    if let last = appState.agentActivityLines.last {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(BrandTheme.accent)
+        .clipShape(RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous))
+        .allowsHitTesting(!appState.isRunningAgent)
+    }
+}

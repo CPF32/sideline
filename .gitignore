@@ -1,0 +1,21 @@
+# Xcode
+DerivedData/
+.derivedData/
+build/
+*.xcuserstate
+xcuserdata/
+*.xccheckout
+*.xcscmblueprint
+
+# macOS
+.DS_Store
+
+# Secrets
+*.env
+.env.*
+!.env.example
+GoogleService-Info*.plist
+
+# SwiftPM
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+.com.apple.user-state.xcuserstate
