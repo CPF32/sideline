@@ -17,7 +17,8 @@ struct SidelineApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(appState)
-                .preferredColorScheme(isDarkMode ? .dark : .light)
+                .preferredColorScheme(ScreenshotDemo.isEnabled ? .light : (isDarkMode ? .dark : .light))
+                .phoneLayoutRoot()
                 .modelContainer(for: [
                     LinkedFranchise.self,
                     ActionProposal.self,

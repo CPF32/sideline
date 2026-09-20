@@ -4,6 +4,31 @@ import UIKit
 enum BrandTheme {
     static let appName = "Sideline"
 
+    // MARK: - Phone canvas (iPhone 17 Pro Max)
+
+    /// Design reference width — iPhone 17 Pro Max portrait (440 × 956 pt).
+    static let designWidth: CGFloat = 440
+    /// Design reference height — iPhone 17 Pro Max portrait.
+    static let designHeight: CGFloat = 956
+
+    /// Scales Max-designed metrics down on smaller iPhones (never enlarges past 1).
+    static var layoutScale: CGFloat {
+        let width = keyWindowWidth ?? UIScreen.main.bounds.width
+        guard width > 0 else { return 1 }
+        return min(max(width / designWidth, 0.82), 1.0)
+    }
+
+    static func space(_ value: CGFloat) -> CGFloat { value * layoutScale }
+
+    /// Standard page inset (20pt on Max).
+    static var pageGutter: CGFloat { space(20) }
+    /// Welcome / sparse screens (32pt on Max).
+    static var pageGutterWide: CGFloat { space(32) }
+    /// Nested cards / fields (14pt on Max).
+    static var pageGutterTight: CGFloat { space(14) }
+    /// Compact list / chat inset (16pt on Max).
+    static var pageGutterCompact: CGFloat { space(16) }
+
     // MARK: - Colors (adaptive — follow preferredColorScheme)
 
     static let background = Color.adaptive(light: "F4F5F3", dark: "0E100E")
@@ -43,22 +68,30 @@ enum BrandTheme {
             ? base.withAlphaComponent(0.32)
             : base.withAlphaComponent(0.45)
     })
-    static let controlRadius: CGFloat = 9
+    static var controlRadius: CGFloat { space(9) }
     /// Shared top inset so tab body content lines up under the nav bar.
-    static let tabContentTop: CGFloat = 12
+    static var tabContentTop: CGFloat { space(12) }
 
-    // MARK: - Typography
+    // MARK: - Typography (sizes track Max canvas)
 
     static func display(_ size: CGFloat, weight: Font.Weight = .bold) -> Font {
-        .system(size: size, weight: weight, design: .default).width(.condensed)
+        .system(size: size * layoutScale, weight: weight, design: .default).width(.condensed)
     }
 
     static func body(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .default)
+        .system(size: size * layoutScale, weight: weight, design: .default)
     }
 
     static func mono(_ size: CGFloat, weight: Font.Weight = .medium) -> Font {
-        .system(size: size, weight: weight, design: .monospaced)
+        .system(size: size * layoutScale, weight: weight, design: .monospaced)
+    }
+
+    private static var keyWindowWidth: CGFloat? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)?
+            .bounds.width
     }
 }
 
@@ -98,6 +131,20 @@ struct SidelineBackground: View {
     }
 }
 
+/// Keeps Dynamic Type in a band so layout stays close to the Max design across phones.
+struct PhoneLayoutRoot: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .dynamicTypeSize(.medium ... .xxLarge)
+    }
+}
+
+extension View {
+    func phoneLayoutRoot() -> some View {
+        modifier(PhoneLayoutRoot())
+    }
+}
+
 struct PrimaryButtonStyle: ButtonStyle {
     var enabled: Bool = true
 
@@ -106,7 +153,7 @@ struct PrimaryButtonStyle: ButtonStyle {
             .font(BrandTheme.body(16, weight: .semibold))
             .foregroundStyle(BrandTheme.onAccent)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
+            .padding(.vertical, BrandTheme.space(14))
             .background(enabled ? BrandTheme.accent : BrandTheme.muted.opacity(0.45))
             .clipShape(RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous))
             .opacity(configuration.isPressed ? 0.85 : 1)
@@ -119,7 +166,7 @@ struct SecondaryButtonStyle: ButtonStyle {
             .font(BrandTheme.body(15, weight: .medium))
             .foregroundStyle(BrandTheme.ink)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
+            .padding(.vertical, BrandTheme.space(12))
             .background(BrandTheme.surface)
             .overlay(
                 RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
@@ -136,7 +183,7 @@ struct DangerButtonStyle: ButtonStyle {
             .font(BrandTheme.body(16, weight: .semibold))
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
+            .padding(.vertical, BrandTheme.space(16))
             .background(BrandTheme.danger)
             .clipShape(RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous))
             .opacity(configuration.isPressed ? 0.85 : 1)

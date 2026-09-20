@@ -58,8 +58,8 @@ struct AgentFollowUpChatSheet: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, BrandTheme.pageGutterCompact)
+        .padding(.vertical, BrandTheme.space(12))
         .background(BrandTheme.accentWash)
     }
 
@@ -71,7 +71,7 @@ struct AgentFollowUpChatSheet: View {
                         Text("Ask about drops, pickups, or this proposal — I can look up your live roster and free agents.")
                             .font(BrandTheme.body(14))
                             .foregroundStyle(BrandTheme.muted)
-                            .padding(.top, 24)
+                            .padding(.top, BrandTheme.space(24))
                             .frame(maxWidth: .infinity)
                     }
                     ForEach(sortedMessages) { message in
@@ -85,7 +85,7 @@ struct AgentFollowUpChatSheet: View {
                                 .font(BrandTheme.body(13))
                                 .foregroundStyle(BrandTheme.muted)
                         }
-                        .padding(.horizontal, 4)
+                        .padding(.horizontal, BrandTheme.space(4))
                         .id("sending")
                     }
                     if let errorText {
@@ -94,7 +94,7 @@ struct AgentFollowUpChatSheet: View {
                             .foregroundStyle(BrandTheme.danger)
                     }
                 }
-                .padding(16)
+                .padding(BrandTheme.pageGutterCompact)
             }
             .onChange(of: sortedMessages.count) { _, _ in
                 scrollToBottom(proxy)
@@ -112,8 +112,8 @@ struct AgentFollowUpChatSheet: View {
             Text(message.content)
                 .font(BrandTheme.body(15))
                 .foregroundStyle(isUser ? BrandTheme.onAccent : BrandTheme.ink)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
+                .padding(.horizontal, BrandTheme.space(12))
+                .padding(.vertical, BrandTheme.space(10))
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(isUser ? BrandTheme.accent : BrandTheme.surfaceStrong)
@@ -127,7 +127,7 @@ struct AgentFollowUpChatSheet: View {
             TextField("Ask about this proposal…", text: $draft, axis: .vertical)
                 .lineLimit(1...5)
                 .font(BrandTheme.body(15))
-                .padding(12)
+                .padding(BrandTheme.space(12))
                 .background(
                     RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
                         .fill(BrandTheme.surfaceStrong)
@@ -144,8 +144,8 @@ struct AgentFollowUpChatSheet: View {
             }
             .disabled(!canSend)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, BrandTheme.pageGutterCompact)
+        .padding(.vertical, BrandTheme.space(12))
         .background(BrandTheme.background.opacity(0.95))
     }
 

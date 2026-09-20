@@ -62,6 +62,22 @@ open Sideline.xcodeproj
 
 See [Docs/MFL.md](Docs/MFL.md) for caching, rate limits, and auth details.
 
+## App Store screenshots
+
+Raw simulator captures and connected marketing frames live under `AppStoreScreenshots/`.
+
+```bash
+./Scripts/capture_app_store_screenshots.sh              # build + capture + compose
+./Scripts/capture_app_store_screenshots.sh --compose-only  # reframe existing raw PNGs
+./Scripts/capture_app_store_screenshots.sh --raw-only      # capture only
+```
+
+- **Raw:** `AppStoreScreenshots/6.7-inch/` (1284×2778)
+- **Marketing (upload these):** `AppStoreScreenshots/marketing/6.7-inch/` — mist/lime device frames and a lime ribbon that continues across the five-slide story (`Your desk.` → `The board.` → `On tap.` → `You approve.` → `Your model.`)
+- **Preview strip:** `AppStoreScreenshots/marketing/6.7-inch/_series-preview.png` (do not upload)
+
+Launch args for deterministic shots: `-ScreenshotDemo` and `-ScreenshotTab <team|league|agents|approvals|settings>`. Edit copy and layout in `Scripts/compose_marketing_screenshots.py`.
+
 ## Privacy & control
 
 - API keys and MFL session cookies live in the **Keychain**, not in the repo.

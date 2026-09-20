@@ -26,6 +26,7 @@
 		850B597668105DE353A1F2EE /* RosterPositionGrouping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07F9890C029DADC2E9FDBE61 /* RosterPositionGrouping.swift */; };
 		8DE4CDCE5361134F77028C14 /* ConnectMFLView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8292AAE5F308E3B127029584 /* ConnectMFLView.swift */; };
 		98C052958C80F92FA39EB239 /* LLMSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64871C66B6AAE284DD5CE1C1 /* LLMSettingsStore.swift */; };
+		9C4D0951718D7583D115CD82 /* ScreenshotDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE4E04B1E8A1B4E3A3DF8A10 /* ScreenshotDemo.swift */; };
 		A891BD663B275FF48C678E80 /* StandingsWeekMovement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 466D5C735B536E22EDD6D50C /* StandingsWeekMovement.swift */; };
 		AF37BDF34748EA74100C1F8C /* AgentFollowUpChatSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9D757B5DFBB184F31EB53A9 /* AgentFollowUpChatSheet.swift */; };
 		B0F3DE9F3107987BFD9A088C /* LeagueReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35AF1AD88214CCD187E74A45 /* LeagueReviewView.swift */; };
@@ -84,6 +85,7 @@
 		D4C7F410C972AF9443C26AA1 /* AgentsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsSheet.swift; sourceTree = "<group>"; };
 		D68145CB20DC6477ACA216D7 /* LeagueReviewService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeagueReviewService.swift; sourceTree = "<group>"; };
 		DA04F64A9D14C7DDEABF6A65 /* MFLNameResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MFLNameResolver.swift; sourceTree = "<group>"; };
+		DE4E04B1E8A1B4E3A3DF8A10 /* ScreenshotDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotDemo.swift; sourceTree = "<group>"; };
 		E416E8C06FAE2B92AD8135A0 /* LineupFeasibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineupFeasibility.swift; sourceTree = "<group>"; };
 		EE320A39FE0CDF44F4338B0A /* LeagueRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeagueRules.swift; sourceTree = "<group>"; };
 		F5610B6ABBCB292364C14EF1 /* SidelineApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidelineApp.swift; sourceTree = "<group>"; };
@@ -135,6 +137,7 @@
 				CCA13B1CEC445C6E31F3CBBE /* MFLPlayerResearchService.swift */,
 				013004612A28FB6C966A746B /* NFLScheduleService.swift */,
 				07F9890C029DADC2E9FDBE61 /* RosterPositionGrouping.swift */,
+				DE4E04B1E8A1B4E3A3DF8A10 /* ScreenshotDemo.swift */,
 				466D5C735B536E22EDD6D50C /* StandingsWeekMovement.swift */,
 				3E23A763D181409E522A26C4 /* TeamSyncService.swift */,
 			);
@@ -284,6 +287,7 @@
 				7BF62DA5B113CA5E241FEC4F /* NFLScheduleService.swift in Sources */,
 				CC812F226A3A4B5CBD213F07 /* RootView.swift in Sources */,
 				850B597668105DE353A1F2EE /* RosterPositionGrouping.swift in Sources */,
+				9C4D0951718D7583D115CD82 /* ScreenshotDemo.swift in Sources */,
 				D0C439C2380668297C4B2C8F /* SettingsDetailPages.swift in Sources */,
 				CE63058BB591C1C8C9572540 /* SettingsView.swift in Sources */,
 				572650BE016F2C0FB6F25795 /* SidelineApp.swift in Sources */,
@@ -309,6 +313,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Sideline;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -316,7 +321,10 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.cpf32.sideline;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -379,7 +387,9 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.9;
@@ -399,6 +409,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Sideline;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -406,7 +417,10 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.cpf32.sideline;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -462,7 +476,9 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.9;

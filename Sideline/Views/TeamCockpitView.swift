@@ -28,7 +28,7 @@ struct TeamCockpitView: View {
                             emptyConnect
                         }
                     }
-                    .padding(.bottom, 24)
+                    .padding(.bottom, BrandTheme.space(24))
                 }
                 .refreshable { await appState.syncTeam() }
             }
@@ -202,8 +202,8 @@ struct TeamCockpitView: View {
                     .foregroundStyle(BrandTheme.muted)
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
+        .padding(.horizontal, BrandTheme.pageGutter)
+        .padding(.vertical, BrandTheme.space(16))
     }
 
     private var shouldShowIR: Bool {
@@ -235,16 +235,16 @@ struct TeamCockpitView: View {
                         .foregroundStyle(BrandTheme.muted)
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            .padding(.bottom, 8)
+            .padding(.horizontal, BrandTheme.pageGutter)
+            .padding(.top, BrandTheme.space(16))
+            .padding(.bottom, BrandTheme.space(8))
 
             if taxiPlayers.isEmpty {
                 Text("No taxi players")
                     .font(BrandTheme.body(14))
                     .foregroundStyle(BrandTheme.muted)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 12)
+                    .padding(.horizontal, BrandTheme.pageGutter)
+                    .padding(.bottom, BrandTheme.space(12))
             } else if groups.isEmpty {
                 ForEach(taxiPlayers.sorted {
                     $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
@@ -257,9 +257,9 @@ struct TeamCockpitView: View {
                         .font(BrandTheme.display(12, weight: .semibold))
                         .foregroundStyle(BrandTheme.ink)
                         .tracking(0.5)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 10)
-                        .padding(.bottom, 4)
+                        .padding(.horizontal, BrandTheme.pageGutter)
+                        .padding(.top, BrandTheme.space(10))
+                        .padding(.bottom, BrandTheme.space(4))
 
                     ForEach(Array(group.players.enumerated()), id: \.element.id) { index, player in
                         PlayerRow(player: player, isStarter: false)
@@ -267,7 +267,7 @@ struct TeamCockpitView: View {
                             Rectangle()
                                 .fill(BrandTheme.hairline)
                                 .frame(height: 1)
-                                .padding(.leading, 20)
+                                .padding(.leading, BrandTheme.pageGutter)
                         }
                     }
                 }
@@ -290,16 +290,16 @@ struct TeamCockpitView: View {
                 .font(BrandTheme.display(13, weight: .semibold))
                 .foregroundStyle(BrandTheme.muted)
                 .tracking(1)
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-                .padding(.bottom, 8)
+                .padding(.horizontal, BrandTheme.pageGutter)
+                .padding(.top, BrandTheme.space(16))
+                .padding(.bottom, BrandTheme.space(8))
 
             if groups.isEmpty {
                 Text("No players")
                     .font(BrandTheme.body(14))
                     .foregroundStyle(BrandTheme.muted)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 12)
+                    .padding(.horizontal, BrandTheme.pageGutter)
+                    .padding(.bottom, BrandTheme.space(12))
             } else {
                 ForEach(groups) { group in
                     HStack(spacing: 6) {
@@ -313,9 +313,9 @@ struct TeamCockpitView: View {
                                 .foregroundStyle(BrandTheme.muted)
                         }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 10)
-                    .padding(.bottom, 4)
+                    .padding(.horizontal, BrandTheme.pageGutter)
+                    .padding(.top, BrandTheme.space(10))
+                    .padding(.bottom, BrandTheme.space(4))
 
                     ForEach(Array(group.players.enumerated()), id: \.element.id) { index, player in
                         PlayerRow(player: player, isStarter: false)
@@ -323,15 +323,15 @@ struct TeamCockpitView: View {
                             Rectangle()
                                 .fill(BrandTheme.hairline)
                                 .frame(height: 1)
-                                .padding(.leading, 20)
+                                .padding(.leading, BrandTheme.pageGutter)
                         }
                     }
                     if group.players.isEmpty, group.key == "TIEBREAK" {
                         Text("Any eligible starter from flex positions")
                             .font(BrandTheme.body(12))
                             .foregroundStyle(BrandTheme.muted)
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 6)
+                            .padding(.horizontal, BrandTheme.pageGutter)
+                            .padding(.bottom, BrandTheme.space(6))
                     }
                 }
             }
@@ -344,16 +344,16 @@ struct TeamCockpitView: View {
                 .font(BrandTheme.display(13, weight: .semibold))
                 .foregroundStyle(BrandTheme.muted)
                 .tracking(1)
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-                .padding(.bottom, 8)
+                .padding(.horizontal, BrandTheme.pageGutter)
+                .padding(.top, BrandTheme.space(16))
+                .padding(.bottom, BrandTheme.space(8))
 
             if players.isEmpty {
                 Text("No players")
                     .font(BrandTheme.body(14))
                     .foregroundStyle(BrandTheme.muted)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 12)
+                    .padding(.horizontal, BrandTheme.pageGutter)
+                    .padding(.bottom, BrandTheme.space(12))
             } else {
                 ForEach(Array(players.enumerated()), id: \.element.id) { index, player in
                     PlayerRow(player: player, isStarter: title == "Starters")
@@ -361,7 +361,7 @@ struct TeamCockpitView: View {
                         Rectangle()
                             .fill(BrandTheme.hairline)
                             .frame(height: 1)
-                            .padding(.leading, 20)
+                            .padding(.leading, BrandTheme.pageGutter)
                     }
                 }
             }
@@ -373,7 +373,7 @@ struct TeamCockpitView: View {
             .font(BrandTheme.body(15))
             .foregroundStyle(BrandTheme.muted)
             .multilineTextAlignment(.leading)
-            .padding(24)
+            .padding(BrandTheme.space(24))
     }
 }
 
@@ -386,11 +386,13 @@ struct PlayerRow: View {
             Text(player.position)
                 .font(BrandTheme.body(12, weight: .semibold))
                 .foregroundStyle(BrandTheme.muted)
-                .frame(width: 36, alignment: .leading)
+                .frame(width: BrandTheme.space(36), alignment: .leading)
             VStack(alignment: .leading, spacing: 2) {
                 Text(player.name)
                     .font(BrandTheme.body(15, weight: .medium))
                     .foregroundStyle(BrandTheme.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
                 HStack(spacing: 6) {
                     if !player.team.isEmpty {
                         Text(player.team)
@@ -430,11 +432,11 @@ struct PlayerRow: View {
             if isStarter {
                 Circle()
                     .fill(BrandTheme.accent)
-                    .frame(width: 8, height: 8)
+                    .frame(width: BrandTheme.space(8), height: BrandTheme.space(8))
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
+        .padding(.horizontal, BrandTheme.pageGutter)
+        .padding(.vertical, BrandTheme.space(12))
         .contentShape(Rectangle())
     }
 }

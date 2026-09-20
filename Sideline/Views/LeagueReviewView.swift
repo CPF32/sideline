@@ -17,7 +17,7 @@ struct LeagueReviewView: View {
                                 .foregroundStyle(BrandTheme.muted)
                             Button("Connect MFL") { appState.showConnect = true }
                                 .buttonStyle(PrimaryButtonStyle())
-                                .padding(.horizontal, 40)
+                                .padding(.horizontal, BrandTheme.space(40))
                         }
                     } else {
                         ScrollView {
@@ -29,9 +29,9 @@ struct LeagueReviewView: View {
                                     matchupsSection
                                     transactionsSection
                                 }
-                                .padding(.horizontal, 20)
-                                .padding(.top, 20)
-                                .padding(.bottom, 40)
+                                .padding(.horizontal, BrandTheme.pageGutter)
+                                .padding(.top, BrandTheme.space(20))
+                                .padding(.bottom, BrandTheme.space(40))
                             }
                         }
                         .refreshable { await appState.syncLeagueReview() }
@@ -91,10 +91,10 @@ struct LeagueReviewView: View {
                         Text("\(row.rank ?? 0)")
                             .font(BrandTheme.mono(13, weight: .semibold))
                             .foregroundStyle(BrandTheme.muted)
-                            .frame(width: 22, alignment: .leading)
+                            .frame(width: BrandTheme.space(22), alignment: .leading)
 
                         rankMovementBadge(row.rankDelta)
-                            .frame(width: 36, alignment: .leading)
+                            .frame(width: BrandTheme.space(36), alignment: .leading)
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(row.name)
@@ -114,8 +114,8 @@ struct LeagueReviewView: View {
                                 .foregroundStyle(BrandTheme.muted)
                         }
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, BrandTheme.space(10))
+                    .padding(.vertical, BrandTheme.space(10))
                     .background(
                         RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
                             .fill(isMine ? BrandTheme.accentWash : Color.clear)
@@ -125,7 +125,7 @@ struct LeagueReviewView: View {
                             Rectangle()
                                 .fill(BrandTheme.hairline)
                                 .frame(height: 1)
-                                .padding(.horizontal, 10)
+                                .padding(.horizontal, BrandTheme.space(10))
                         }
                     }
                 }
@@ -161,7 +161,7 @@ struct LeagueReviewView: View {
                         matchupSide(name: row.homeName, score: row.homeScore, leading: homeLeads)
                         matchupSide(name: row.awayName, score: row.awayScore, leading: awayLeads)
                     }
-                    .padding(.vertical, 10)
+                    .padding(.vertical, BrandTheme.space(10))
                     Divider().overlay(BrandTheme.hairline)
                 }
             }
@@ -227,7 +227,7 @@ struct LeagueReviewView: View {
                             .foregroundStyle(BrandTheme.muted)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    .padding(.vertical, 8)
+                    .padding(.vertical, BrandTheme.space(8))
                     Divider().overlay(BrandTheme.hairline)
                 }
             }
@@ -276,8 +276,8 @@ struct LeagueReviewView: View {
                                 .fill(selected ? BrandTheme.accent : Color.clear)
                                 .frame(height: 2)
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.top, 4)
+                        .padding(.horizontal, BrandTheme.space(12))
+                        .padding(.top, BrandTheme.space(4))
                     }
                     .buttonStyle(.plain)
                 }
@@ -327,7 +327,7 @@ struct LeagueReviewView: View {
         Text(text)
             .font(BrandTheme.body(14))
             .foregroundStyle(BrandTheme.muted)
-            .padding(.vertical, 8)
+            .padding(.vertical, BrandTheme.space(8))
     }
 }
 

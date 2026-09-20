@@ -15,9 +15,9 @@ private struct SettingsPageChrome<Content: View>: View {
                 VStack(alignment: .leading, spacing: 20) {
                     content
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-                .padding(.bottom, 40)
+                .padding(.horizontal, BrandTheme.pageGutter)
+                .padding(.top, BrandTheme.space(12))
+                .padding(.bottom, BrandTheme.space(40))
             }
             .scrollDismissesKeyboard(.interactively)
         }
@@ -29,8 +29,8 @@ private struct SettingsPageChrome<Content: View>: View {
 private func fieldShell<Content: View>(@ViewBuilder content: () -> Content) -> some View {
     content()
         .font(BrandTheme.body(16))
-        .padding(.horizontal, 14)
-        .padding(.vertical, 14)
+        .padding(.horizontal, BrandTheme.pageGutterTight)
+        .padding(.vertical, BrandTheme.space(14))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
@@ -85,8 +85,8 @@ struct ThemeSettingsPage: View {
                 }
             }
             .tint(BrandTheme.accent)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .padding(.horizontal, BrandTheme.pageGutterTight)
+            .padding(.vertical, BrandTheme.space(12))
             .background(
                 RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
                     .fill(BrandTheme.surface)
@@ -195,14 +195,14 @@ struct ModelSettingsPage: View {
                                 .foregroundStyle(BrandTheme.muted)
                             Spacer()
                         }
-                        .padding(.vertical, 12)
-                        .padding(.horizontal, 14)
+                        .padding(.vertical, BrandTheme.space(12))
+                        .padding(.horizontal, BrandTheme.pageGutterTight)
                     } else if filteredModels.isEmpty {
                         Text(modelSearch.isEmpty ? "No models loaded." : "No models match “\(modelSearch)”.")
                             .font(BrandTheme.body(14))
                             .foregroundStyle(BrandTheme.muted)
-                            .padding(.vertical, 12)
-                            .padding(.horizontal, 14)
+                            .padding(.vertical, BrandTheme.space(12))
+                            .padding(.horizontal, BrandTheme.pageGutterTight)
                     } else {
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: 0) {
@@ -232,19 +232,19 @@ struct ModelSettingsPage: View {
                                                     .foregroundStyle(BrandTheme.ink)
                                             }
                                         }
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 10)
+                                        .padding(.horizontal, BrandTheme.pageGutterTight)
+                                        .padding(.vertical, BrandTheme.space(10))
                                         .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
                                     Rectangle()
                                         .fill(BrandTheme.hairline)
                                         .frame(height: 1)
-                                        .padding(.leading, 14)
+                                        .padding(.leading, BrandTheme.pageGutterTight)
                                 }
                             }
                         }
-                        .frame(maxHeight: 280)
+                        .frame(maxHeight: BrandTheme.space(280))
                     }
                 }
                 .background(
@@ -299,7 +299,7 @@ struct APIKeySettingsPage: View {
                 Text(banner)
                     .font(BrandTheme.body(14, weight: .medium))
                     .foregroundStyle(bannerError ? BrandTheme.danger : BrandTheme.ink)
-                    .padding(12)
+                    .padding(BrandTheme.space(12))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(bannerError ? BrandTheme.danger.opacity(0.18) : BrandTheme.accentWash)
                     .clipShape(RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous))
@@ -576,8 +576,8 @@ struct LimitsSettingsPage: View {
                 TextField("None", value: $appState.guardrails.maxFAABBid, format: .number)
                     .keyboardType(.decimalPad)
                     .multilineTextAlignment(.trailing)
-                    .frame(width: 100)
-                    .padding(10)
+                    .frame(width: BrandTheme.space(100))
+                    .padding(BrandTheme.space(10))
                     .background(
                         RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
                             .fill(BrandTheme.surface)
@@ -621,7 +621,7 @@ struct ActivitySettingsPage: View {
                             .font(BrandTheme.body(11))
                             .foregroundStyle(BrandTheme.muted)
                     }
-                    .padding(.vertical, 6)
+                    .padding(.vertical, BrandTheme.space(6))
                     Divider().overlay(BrandTheme.hairline)
                 }
             }
@@ -664,8 +664,8 @@ struct AboutDeveloperSettingsPage: View {
                         .interpolation(.none)
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 200, height: 200)
-                        .padding(16)
+                        .frame(width: BrandTheme.space(200), height: BrandTheme.space(200))
+                        .padding(BrandTheme.pageGutterCompact)
                         .background(Color.white)
                         .clipShape(RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous))
                 }
@@ -691,7 +691,7 @@ struct AboutDeveloperSettingsPage: View {
                     .buttonStyle(PrimaryButtonStyle())
                 }
             }
-            .padding(16)
+            .padding(BrandTheme.pageGutterCompact)
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)

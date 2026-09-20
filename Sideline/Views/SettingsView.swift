@@ -78,7 +78,7 @@ struct SettingsView: View {
                             Rectangle()
                                 .fill(BrandTheme.hairline)
                                 .frame(height: 1)
-                                .padding(.leading, 52)
+                                .padding(.leading, BrandTheme.space(52))
                         }
 
                         Button {
@@ -126,7 +126,7 @@ struct SettingsView: View {
             Image(systemName: dest.systemImage)
                 .font(.body.weight(.semibold))
                 .foregroundStyle(dest.isDestructive ? BrandTheme.danger : BrandTheme.ink)
-                .frame(width: 28)
+                .frame(width: BrandTheme.space(28))
             Text(dest.title)
                 .font(BrandTheme.body(16, weight: .semibold))
                 .foregroundStyle(dest.isDestructive ? BrandTheme.danger : BrandTheme.ink)
@@ -137,7 +137,7 @@ struct SettingsView: View {
                     .foregroundStyle(BrandTheme.muted)
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, BrandTheme.pageGutter)
         .frame(height: height)
         .contentShape(Rectangle())
     }

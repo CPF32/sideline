@@ -70,6 +70,7 @@ final class AppState: ObservableObject {
     }
 
     func syncTeam(week: Int? = nil) async {
+        guard !ScreenshotDemo.isEnabled else { return }
         guard let linked = linkedFranchise else {
             showConnect = true
             return
@@ -108,6 +109,7 @@ final class AppState: ObservableObject {
     }
 
     func syncLeagueReview() async {
+        guard !ScreenshotDemo.isEnabled else { return }
         guard let linked = linkedFranchise else {
             showConnect = true
             return
@@ -576,5 +578,186 @@ final class AppState: ObservableObject {
         guard let context = modelContext else { return }
         context.insert(ActivityEvent(message: message, detail: detail))
         try? context.save()
+    }
+
+    /// Deterministic in-memory + SwiftData seed for App Store screenshot captures.
+    func applyScreenshotDemo(context: ModelContext) {
+        auth.applyScreenshotDemo()
+        modelContext = context
+
+        // Wipe prior demo rows so relaunches stay clean.
+        if let existingLinks = try? context.fetch(FetchDescriptor<LinkedFranchise>()) {
+            for item in existingLinks { context.delete(item) }
+        }
+        if let existingProposals = try? context.fetch(FetchDescriptor<ActionProposal>()) {
+            for item in existingProposals { context.delete(item) }
+        }
+
+        let linked = LinkedFranchise(
+            leagueId: "99999",
+            leagueName: "Sideline Classic",
+            franchiseId: "0001",
+            franchiseName: "Farish FC",
+            host: "www64.myfantasyleague.com",
+            season: 2025
+        )
+        context.insert(linked)
+        linkedFranchise = linked
+
+        let rules = LeagueRules(
+            rosterSize: 20,
+            injuredReserveSlots: 2,
+            taxiSquadSlots: 3,
+            totalStarters: 9,
+            starterSlots: [
+                .init(name: "QB", min: 1, max: 1),
+                .init(name: "RB", min: 2, max: 2),
+                .init(name: "WR", min: 3, max: 3),
+                .init(name: "TE", min: 1, max: 1),
+                .init(name: "FLEX", min: 1, max: 1),
+                .init(name: "PK", min: 1, max: 1)
+            ],
+            usesSalaries: true,
+            salaryCapAmount: 200_000_000,
+            rawNotes: nil
+        )
+
+        func player(
+            id: String,
+            name: String,
+            pos: String,
+            team: String,
+            status: String,
+            proj: Double,
+            opp: String,
+            salary: Double,
+            injury: String? = nil
+        ) -> RosterPlayer {
+            RosterPlayer(
+                playerId: id,
+                name: name,
+                position: pos,
+                team: team,
+                status: status,
+                projectedPoints: proj,
+                seasonPoints: proj * 8,
+                lastWeekPoints: proj - 1.2,
+                opponent: opp,
+                injuryStatus: injury,
+                gameLockState: "upcoming",
+                gameKickoff: nil,
+                salary: salary,
+                contractYear: 2026
+            )
+        }
+
+        let starters = [
+            player(id: "1", name: "Jalen Hurts", pos: "QB", team: "PHI", status: "starter", proj: 22.4, opp: "@TB", salary: 28_000_000),
+            player(id: "2", name: "Saquon Barkley", pos: "RB", team: "PHI", status: "starter", proj: 18.7, opp: "@TB", salary: 22_000_000),
+            player(id: "3", name: "Breece Hall", pos: "RB", team: "NYJ", status: "starter", proj: 15.1, opp: "vs DEN", salary: 14_000_000),
+            player(id: "4", name: "CeeDee Lamb", pos: "WR", team: "DAL", status: "starter", proj: 16.8, opp: "@NYG", salary: 24_000_000),
+            player(id: "5", name: "Amon-Ra St. Brown", pos: "WR", team: "DET", status: "starter", proj: 15.9, opp: "vs SEA", salary: 18_000_000),
+            player(id: "6", name: "Malik Nabers", pos: "WR", team: "NYG", status: "starter", proj: 14.2, opp: "vs DAL", salary: 9_000_000),
+            player(id: "7", name: "Travis Kelce", pos: "TE", team: "KC", status: "starter", proj: 12.4, opp: "@LAC", salary: 12_000_000),
+            player(id: "8", name: "James Cook", pos: "RB", team: "BUF", status: "starter", proj: 13.6, opp: "vs MIA", salary: 7_500_000),
+            player(id: "9", name: "Jake Elliott", pos: "PK", team: "PHI", status: "starter", proj: 8.2, opp: "@TB", salary: 3_200_000)
+        ]
+        let bench = [
+            player(id: "10", name: "Jayden Daniels", pos: "QB", team: "WAS", status: "bench", proj: 19.1, opp: "@ARI", salary: 11_000_000),
+            player(id: "11", name: "DK Metcalf", pos: "WR", team: "SEA", status: "bench", proj: 11.4, opp: "@DET", salary: 10_000_000),
+            player(id: "12", name: "Isiah Pacheco", pos: "RB", team: "KC", status: "bench", proj: 10.8, opp: "@LAC", salary: 6_000_000, injury: "Q")
+        ]
+        let ir = [
+            player(id: "13", name: "Cooper Kupp", pos: "WR", team: "LAR", status: "ir", proj: 0, opp: "BYE", salary: 8_000_000, injury: "IR")
+        ]
+        let taxi = [
+            player(id: "14", name: "Rome Odunze", pos: "WR", team: "CHI", status: "taxi", proj: 9.1, opp: "vs IND", salary: 2_800_000)
+        ]
+        let rostered = starters + bench + ir + taxi
+        let totalSalary = rostered.compactMap(\.salary).reduce(0, +)
+
+        team = TeamSnapshot(
+            leagueId: linked.leagueId,
+            franchiseId: linked.franchiseId,
+            leagueName: linked.leagueName,
+            franchiseName: linked.franchiseName,
+            week: 6,
+            seasonPointsFor: 742.3,
+            starters: starters,
+            bench: bench,
+            ir: ir,
+            taxi: taxi,
+            matchup: MatchupSnapshot(
+                week: 6,
+                myScore: 88.4,
+                oppScore: 81.2,
+                opponentName: "Gridiron Guild",
+                lineupDeadline: nil
+            ),
+            leagueRules: rules,
+            totalSalary: totalSalary,
+            syncedAt: .now
+        )
+        selectedWeek = 6
+        currentSeasonWeek = 6
+        statusMessage = "Week 6"
+
+        leagueReview = LeagueReviewSnapshot(
+            week: 6,
+            standings: [
+                LeagueStandingRow(franchiseId: "0001", name: "Farish FC", wins: 4, losses: 1, ties: 0, pointsFor: 742.3, pointsAgainst: 680.1, rank: 1, rankDelta: 1),
+                LeagueStandingRow(franchiseId: "0002", name: "Gridiron Guild", wins: 4, losses: 1, ties: 0, pointsFor: 731.0, pointsAgainst: 701.4, rank: 2, rankDelta: -1),
+                LeagueStandingRow(franchiseId: "0003", name: "Blitz Bureau", wins: 3, losses: 2, ties: 0, pointsFor: 698.5, pointsAgainst: 690.2, rank: 3, rankDelta: 0),
+                LeagueStandingRow(franchiseId: "0004", name: "Red Zone Inc", wins: 3, losses: 2, ties: 0, pointsFor: 684.2, pointsAgainst: 705.8, rank: 4, rankDelta: 2),
+                LeagueStandingRow(franchiseId: "0005", name: "Snap Count", wins: 2, losses: 3, ties: 0, pointsFor: 655.9, pointsAgainst: 712.0, rank: 5, rankDelta: -1),
+                LeagueStandingRow(franchiseId: "0006", name: "Play Action", wins: 1, losses: 4, ties: 0, pointsFor: 612.4, pointsAgainst: 748.6, rank: 6, rankDelta: 0)
+            ],
+            transactions: [
+                LeagueTransactionRow(id: "t1", timestamp: .now.addingTimeInterval(-3600), franchiseId: "0003", franchiseName: "Blitz Bureau", summary: "Added Jaylen Warren, Dropped Zamir White", type: "freeagent"),
+                LeagueTransactionRow(id: "t2", timestamp: .now.addingTimeInterval(-7200), franchiseId: "0002", franchiseName: "Gridiron Guild", summary: "Waiver: Isaiah Likely for $12", type: "waiver"),
+                LeagueTransactionRow(id: "t3", timestamp: .now.addingTimeInterval(-86400), franchiseId: "0001", franchiseName: "Farish FC", summary: "Trade: sent Pick 2026 2nd for Tee Higgins", type: "trade")
+            ],
+            matchups: [
+                LeagueMatchupRow(id: "m1", homeName: "Farish FC", awayName: "Gridiron Guild", homeScore: 88.4, awayScore: 81.2),
+                LeagueMatchupRow(id: "m2", homeName: "Blitz Bureau", awayName: "Red Zone Inc", homeScore: 74.1, awayScore: 79.6),
+                LeagueMatchupRow(id: "m3", homeName: "Snap Count", awayName: "Play Action", homeScore: 62.0, awayScore: 58.4)
+            ],
+            syncedAt: .now
+        )
+
+        let lineup = ActionProposal(
+            kind: .lineup,
+            title: "Start Cook over Pacheco",
+            summary: "Flip James Cook into FLEX. Pacheco is questionable and projects 3.0 pts lower.",
+            rationale: "Cook has a friendly matchup and higher median projection this week.",
+            risks: "If Pacheco is active and sees goal-line work, you leave a few points on the table.",
+            payloadJSON: #"{"canAutoSet":true}"#,
+            agentName: "Lineup Desk"
+        )
+        let waiver = ActionProposal(
+            kind: .waiver,
+            title: "Add Jauan Jennings, drop DK Metcalf",
+            summary: "Jennings is available and ranks as a top add at WR for your league shape.",
+            rationale: "Metcalf’s volume is thin; Jennings has clearer target share this week.",
+            risks: "Metcalf still has boom weeks — only move if you need a safer floor.",
+            payloadJSON: #"{"canAutoSet":true}"#,
+            agentName: "Waiver Desk"
+        )
+        context.insert(lineup)
+        context.insert(waiver)
+        try? context.save()
+
+        pendingCount = 2
+        agentRunTitle = "Set my lineup"
+        agentActivityStatus = "Proposed 1 lineup change · waiting on approval"
+        agentActivityLines = [
+            AgentActivityLine(text: "Using GPT-4.1 mini"),
+            AgentActivityLine(text: "Loaded roster + injury notes"),
+            AgentActivityLine(text: "Compared FLEX options vs league strength"),
+            AgentActivityLine(text: "Queued proposal for approval")
+        ]
+        isRunningAgent = false
+        showConnect = false
+        errorMessage = nil
     }
 }

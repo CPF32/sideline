@@ -7,9 +7,9 @@ struct WelcomeView: View {
     var body: some View {
         ZStack {
             SidelineBackground()
-            VStack(spacing: 28) {
+            VStack(spacing: BrandTheme.space(28)) {
                 Spacer()
-                VStack(spacing: 8) {
+                VStack(spacing: BrandTheme.space(8)) {
                     Text(BrandTheme.appName.uppercased())
                         .font(BrandTheme.display(44, weight: .heavy))
                         .foregroundStyle(BrandTheme.ink)
@@ -19,9 +19,9 @@ struct WelcomeView: View {
                         .foregroundStyle(BrandTheme.muted)
                         .multilineTextAlignment(.center)
                 }
-                .padding(.horizontal, 32)
+                .padding(.horizontal, BrandTheme.pageGutterWide)
 
-                VStack(spacing: 12) {
+                VStack(spacing: BrandTheme.space(12)) {
                     SignInWithAppleButtonView { result in
                         appState.auth.handleSignIn(result)
                     }
@@ -39,13 +39,13 @@ struct WelcomeView: View {
                         .foregroundStyle(BrandTheme.muted)
                         .multilineTextAlignment(.center)
                 }
-                .padding(.horizontal, 32)
+                .padding(.horizontal, BrandTheme.pageGutterWide)
 
                 if let error = appState.auth.errorMessage {
                     Text(error)
                         .font(BrandTheme.body(13))
                         .foregroundStyle(BrandTheme.danger)
-                        .padding(.horizontal, 32)
+                        .padding(.horizontal, BrandTheme.pageGutterWide)
                         .multilineTextAlignment(.center)
                 }
 

@@ -24,6 +24,15 @@ final class AppleAuthService: ObservableObject {
         errorMessage = nil
     }
 
+    /// Fixed identity for App Store screenshot captures.
+    func applyScreenshotDemo() {
+        KeychainStore.set("screenshot-demo-user", for: .appleUserID)
+        KeychainStore.set("Chris", for: .appleDisplayName)
+        displayName = "Chris"
+        isSignedIn = true
+        errorMessage = nil
+    }
+
     func handleSignIn(_ result: Result<ASAuthorization, Error>) {
         switch result {
         case .success(let auth):
@@ -82,7 +91,7 @@ struct SignInWithAppleButtonView: View {
             request.requestedScopes = [.fullName, .email]
         }, onCompletion: onCompletion)
         .signInWithAppleButtonStyle(.black)
-        .frame(height: 48)
+        .frame(height: BrandTheme.space(48))
         .clipShape(RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous))
     }
 }

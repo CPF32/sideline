@@ -30,9 +30,9 @@ struct ConnectMFLView: View {
                             leaguePickerBlock
                         }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 12)
-                    .padding(.bottom, 40)
+                    .padding(.horizontal, BrandTheme.pageGutter)
+                    .padding(.top, BrandTheme.space(12))
+                    .padding(.bottom, BrandTheme.space(40))
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -84,7 +84,7 @@ struct ConnectMFLView: View {
                     .frame(height: 1)
                 stepDot(active: step == .pickLeague, label: "2")
             }
-            .padding(.top, 8)
+            .padding(.top, BrandTheme.space(8))
             HStack {
                 Text("Sign in")
                     .font(BrandTheme.body(11, weight: .medium))
@@ -151,7 +151,7 @@ struct ConnectMFLView: View {
                 Text("No leagues found for this account.")
                     .font(BrandTheme.body(14))
                     .foregroundStyle(BrandTheme.muted)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, BrandTheme.space(12))
             } else {
                 ForEach(Array(leagues.enumerated()), id: \.element.id) { index, league in
                     Button {
@@ -173,7 +173,7 @@ struct ConnectMFLView: View {
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(BrandTheme.muted)
                         }
-                        .padding(.vertical, 16)
+                        .padding(.vertical, BrandTheme.space(16))
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -190,7 +190,7 @@ struct ConnectMFLView: View {
                 Text(error)
                     .font(BrandTheme.body(13))
                     .foregroundStyle(BrandTheme.danger)
-                    .padding(.top, 16)
+                    .padding(.top, BrandTheme.space(16))
             }
         }
     }
@@ -204,8 +204,8 @@ struct ConnectMFLView: View {
             content()
                 .font(BrandTheme.body(16))
                 .foregroundStyle(BrandTheme.ink)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 14)
+                .padding(.horizontal, BrandTheme.pageGutterTight)
+                .padding(.vertical, BrandTheme.space(14))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(BrandTheme.surface)
                 .overlay(

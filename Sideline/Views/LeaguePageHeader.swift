@@ -49,9 +49,9 @@ struct LeaguePageHeader<Accessory: View>: View {
                     .foregroundStyle(BrandTheme.muted)
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, BrandTheme.pageGutter)
         .padding(.top, BrandTheme.tabContentTop)
-        .padding(.bottom, 16)
+        .padding(.bottom, BrandTheme.space(16))
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

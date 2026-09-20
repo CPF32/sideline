@@ -1,6 +1,7 @@
 # Xcode
 DerivedData/
 .derivedData/
+.screenshot-derived-data/
 build/
 *.xcuserstate
 xcuserdata/
@@ -19,3 +20,6 @@ GoogleService-Info*.plist
 # SwiftPM
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 .com.apple.user-state.xcuserstate
+
+# Screenshot tooling
+Scripts/.venv-screenshots/

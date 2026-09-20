@@ -11,6 +11,7 @@ struct RootView: View {
             .environmentObject(appState)
             .onAppear {
                 appState.attach(context: modelContext)
+                ScreenshotDemo.applyIfNeeded(appState: appState, context: modelContext)
             }
     }
 }
@@ -21,7 +22,7 @@ private struct AuthGate: View {
 
     var body: some View {
         Group {
-            if auth.isSignedIn {
+            if auth.isSignedIn || ScreenshotDemo.isEnabled {
                 MainTabView()
             } else {
                 WelcomeView()

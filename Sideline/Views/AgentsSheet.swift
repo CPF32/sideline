@@ -29,8 +29,8 @@ struct AgentsSheet: View {
                                         .foregroundStyle(BrandTheme.muted)
                                 }
                             }
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 16)
+                            .padding(.horizontal, BrandTheme.pageGutter)
+                            .padding(.vertical, BrandTheme.space(16))
                             .padding(.top, index == 0 ? BrandTheme.tabContentTop : 0)
                             .opacity(appState.isRunningAgent ? 0.55 : 1)
                         }
@@ -38,7 +38,7 @@ struct AgentsSheet: View {
                         Rectangle()
                             .fill(BrandTheme.hairline)
                             .frame(height: 1)
-                            .padding(.leading, 20)
+                            .padding(.leading, BrandTheme.pageGutter)
                     }
                     Spacer(minLength: 0)
                 }
@@ -47,8 +47,8 @@ struct AgentsSheet: View {
                     VStack {
                         Spacer()
                         agentLivePanel
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 16)
+                            .padding(.horizontal, BrandTheme.pageGutterCompact)
+                            .padding(.bottom, BrandTheme.space(16))
                     }
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
@@ -101,7 +101,7 @@ struct AgentsSheet: View {
                                 Text(line.at.formatted(date: .omitted, time: .standard))
                                     .font(BrandTheme.mono(10))
                                     .foregroundStyle(BrandTheme.onAccent.opacity(0.55))
-                                    .frame(width: 64, alignment: .leading)
+                                    .frame(width: BrandTheme.space(64), alignment: .leading)
                                 Text(line.text)
                                     .font(BrandTheme.body(12))
                                     .foregroundStyle(BrandTheme.onAccent)
@@ -111,7 +111,7 @@ struct AgentsSheet: View {
                         }
                     }
                 }
-                .frame(maxHeight: 140)
+                .frame(maxHeight: BrandTheme.space(140))
                 .onChange(of: appState.agentActivityLines.count) { _, _ in
                     if let last = appState.agentActivityLines.last {
                         withAnimation(.easeOut(duration: 0.15)) {
@@ -121,7 +121,7 @@ struct AgentsSheet: View {
                 }
             }
         }
-        .padding(14)
+        .padding(BrandTheme.pageGutterTight)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(BrandTheme.accent)
         .clipShape(RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous))

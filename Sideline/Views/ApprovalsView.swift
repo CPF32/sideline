@@ -54,7 +54,7 @@ struct ApprovalsView: View {
                                     .buttonStyle(.plain)
                                     .foregroundStyle(BrandTheme.ink)
                                 }
-                                .padding(.vertical, 4)
+                                .padding(.vertical, BrandTheme.space(4))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .contentShape(Rectangle())
                                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -216,7 +216,7 @@ struct ProposalRow: View {
                 Label("Discuss with agent", systemImage: "bubble.left.and.bubble.right")
                     .font(BrandTheme.body(14, weight: .semibold))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, BrandTheme.space(12))
                     .background(
                         RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
                             .stroke(BrandTheme.hairline, lineWidth: 1)
@@ -225,6 +225,6 @@ struct ProposalRow: View {
             .buttonStyle(.plain)
             .foregroundStyle(BrandTheme.ink)
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, BrandTheme.space(6))
     }
 }
