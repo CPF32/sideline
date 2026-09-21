@@ -6,6 +6,8 @@ import SwiftUI
 final class AppState: ObservableObject {
     @Published var team: TeamSnapshot?
     @Published var linkedFranchise: LinkedFranchise?
+    /// All connected MFL + Sleeper leagues (hub).
+    @Published var linkedLeagues: [LinkedFranchise] = []
     @Published var isSyncing = false
     @Published var isRunningAgent = false
     @Published var agentRunTitle: String?
@@ -39,6 +41,7 @@ final class AppState: ObservableObject {
     let llmSettings = LLMSettingsStore()
 
     private var modelContext: ModelContext?
+    private static let activeLeagueKey = "sideline.activeLeagueLinkId"
 
     var availableWeeks: [Int] {
         let end = max(seasonEndWeek, currentSeasonWeek, team?.week ?? selectedWeek, 1)
@@ -62,10 +65,9 @@ final class AppState: ObservableObject {
     func attach(context: ModelContext) {
         modelContext = context
         refreshPendingCount()
-        if linkedFranchise == nil {
-            linkedFranchise = try? context.fetch(FetchDescriptor<LinkedFranchise>()).first
-        }
+        refreshLinkedLeagues()
         refreshCachedSummaries()
+        Task { await SleeperPlayerCatalog.shared.ensureLoaded() }
     }
 
     /// Removes leftover ScreenshotDemo franchise/proposals so normal sync uses a real MFL link.
@@ -101,10 +103,79 @@ final class AppState: ObservableObject {
                 agentRunTitle = nil
             }
         }
-        if linkedFranchise == nil {
-            linkedFranchise = try? context.fetch(FetchDescriptor<LinkedFranchise>()).first
-        }
+        refreshLinkedLeagues()
         refreshPendingCount()
+    }
+
+    func refreshLinkedLeagues() {
+        guard let context = modelContext else { return }
+        let all = (try? context.fetch(FetchDescriptor<LinkedFranchise>())) ?? []
+        linkedLeagues = all.sorted {
+            if $0.providerRaw != $1.providerRaw {
+                return $0.providerRaw < $1.providerRaw
+            }
+            return $0.leagueName.localizedCaseInsensitiveCompare($1.leagueName) == .orderedAscending
+        }
+        restoreActiveLeague()
+    }
+
+    private func restoreActiveLeague() {
+        let saved = UserDefaults.standard.string(forKey: Self.activeLeagueKey)
+        if let saved, let match = linkedLeagues.first(where: { $0.id == saved }) {
+            linkedFranchise = match
+            return
+        }
+        if let current = linkedFranchise,
+           linkedLeagues.contains(where: { $0.id == current.id }) {
+            UserDefaults.standard.set(current.id, forKey: Self.activeLeagueKey)
+            return
+        }
+        linkedFranchise = linkedLeagues.first
+        if let active = linkedFranchise {
+            UserDefaults.standard.set(active.id, forKey: Self.activeLeagueKey)
+        }
+    }
+
+    func switchActiveLeague(_ link: LinkedFranchise) {
+        guard linkedFranchise?.id != link.id else { return }
+        linkedFranchise = link
+        UserDefaults.standard.set(link.id, forKey: Self.activeLeagueKey)
+        team = nil
+        leagueReview = nil
+        upcomingMatchups = []
+        teamWeekSummary = nil
+        leagueWeekSummary = nil
+        statusMessage = "Switched to \(link.leagueName)"
+        log("Active league → \(link.provider.shortName): \(link.leagueName)")
+        Task {
+            await syncTeam()
+            await syncLeagueReview()
+        }
+    }
+
+    func removeLinkedLeague(_ link: LinkedFranchise) {
+        guard let context = modelContext else { return }
+        let wasActive = linkedFranchise?.id == link.id
+        context.delete(link)
+        try? context.save()
+        if wasActive {
+            linkedFranchise = nil
+            team = nil
+            leagueReview = nil
+            upcomingMatchups = []
+            teamWeekSummary = nil
+            leagueWeekSummary = nil
+            UserDefaults.standard.removeObject(forKey: Self.activeLeagueKey)
+        }
+        refreshLinkedLeagues()
+        if wasActive, let next = linkedFranchise {
+            Task {
+                await syncTeam()
+                await syncLeagueReview()
+            }
+            _ = next
+        }
+        log("Removed league \(link.leagueName)")
     }
 
     func saveGuardrails() {
@@ -138,70 +209,108 @@ final class AppState: ObservableObject {
         isSyncing = true
         errorMessage = nil
         defer { isSyncing = false }
+
         do {
-            let snapshot: TeamSnapshot
-            if let week {
-                // Explicit week from the picker (historic, live, or upcoming)
-                snapshot = try await TeamSyncService.loadTeam(linked: linked, week: week)
-                selectedWeek = week
-                // Never advance "live" week just because the user browsed ahead.
-            } else {
-                // Default / refresh — always land on live NFL week from nflSchedule
-                snapshot = try await TeamSyncService.loadTeam(linked: linked, week: nil)
-                selectedWeek = snapshot.week
-                currentSeasonWeek = snapshot.week
-            }
-            team = snapshot
-            if let end = snapshot.leagueRules?.endWeek, end >= currentSeasonWeek {
-                seasonEndWeek = end
-            } else {
-                seasonEndWeek = max(seasonEndWeek, 18, currentSeasonWeek)
-            }
-            // Persist real team name once league export resolves it (myleagues often returns "Franchise").
-            if snapshot.franchiseName.caseInsensitiveCompare("Franchise") != .orderedSame,
-               !snapshot.franchiseName.isEmpty,
-               linked.franchiseName != snapshot.franchiseName {
-                linked.franchiseName = snapshot.franchiseName
-                linked.updatedAt = .now
-                try? modelContext?.save()
-            }
-            await refreshUpcomingMatchups(linked: linked)
-            let weekNote: String
-            if selectedWeek < currentSeasonWeek {
-                weekNote = " · historic"
-            } else if selectedWeek > currentSeasonWeek {
-                weekNote = " · upcoming"
-            } else {
-                weekNote = ""
-            }
-            statusMessage = "Week \(selectedWeek)\(weekNote)"
-            log("Synced roster week \(selectedWeek)")
-            refreshCachedSummaries()
+            try await performTeamSync(linked: linked, week: week)
         } catch {
-            // Keep last good roster so chat/tools aren't emptied by a flaky refresh.
+            let msg = error.localizedDescription
+            let transient = msg.localizedCaseInsensitiveContains("429")
+                || msg.localizedCaseInsensitiveContains("rate")
+                || msg.localizedCaseInsensitiveContains("timed out")
+                || msg.localizedCaseInsensitiveContains("offline")
+                || msg.localizedCaseInsensitiveContains("network")
+                || msg.localizedCaseInsensitiveContains("connection")
+            // Cold open often races MFL — one quiet retry before surfacing an error.
+            if transient {
+                log("Sync retry after transient failure", detail: msg)
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                do {
+                    try await performTeamSync(linked: linked, week: week)
+                    return
+                } catch {
+                    // fall through with original handling using latest error
+                }
+            }
             if team != nil {
                 statusMessage = "Refresh incomplete — showing last sync"
-                let msg = error.localizedDescription
-                if msg.localizedCaseInsensitiveContains("429") || msg.localizedCaseInsensitiveContains("rate") {
-                    // Soft: don't pop a blocking alert for rate limits when we still have data.
+                if transient {
                     log("Sync soft-failed", detail: msg)
                 } else {
                     errorMessage = msg
                 }
+            } else if transient {
+                // Still no roster — soft message rather than a hard modal on first paint.
+                statusMessage = "Couldn’t reach league host — pull to refresh"
+                log("Initial sync soft-failed", detail: msg)
             } else {
                 errorMessage = error.localizedDescription
             }
         }
     }
 
+    private func performTeamSync(linked: LinkedFranchise, week: Int?) async throws {
+        let snapshot: TeamSnapshot
+        if linked.isSleeper {
+            if let week {
+                snapshot = try await SleeperTeamSyncService.loadTeam(linked: linked, week: week)
+                selectedWeek = week
+            } else {
+                snapshot = try await SleeperTeamSyncService.loadTeam(linked: linked, week: nil)
+                selectedWeek = snapshot.week
+                currentSeasonWeek = snapshot.week
+            }
+        } else if let week {
+            snapshot = try await TeamSyncService.loadTeam(linked: linked, week: week)
+            selectedWeek = week
+        } else {
+            snapshot = try await TeamSyncService.loadTeam(linked: linked, week: nil)
+            selectedWeek = snapshot.week
+            currentSeasonWeek = snapshot.week
+        }
+        team = snapshot
+        if let end = snapshot.leagueRules?.endWeek, end >= currentSeasonWeek {
+            seasonEndWeek = end
+        } else {
+            seasonEndWeek = max(seasonEndWeek, 18, currentSeasonWeek)
+        }
+        if snapshot.franchiseName.caseInsensitiveCompare("Franchise") != .orderedSame,
+           !snapshot.franchiseName.isEmpty,
+           linked.franchiseName != snapshot.franchiseName {
+            linked.franchiseName = snapshot.franchiseName
+            linked.updatedAt = .now
+            try? modelContext?.save()
+        }
+        await refreshUpcomingMatchups(linked: linked)
+        let weekNote: String
+        if selectedWeek < currentSeasonWeek {
+            weekNote = " · historic"
+        } else if selectedWeek > currentSeasonWeek {
+            weekNote = " · upcoming"
+        } else {
+            weekNote = ""
+        }
+        statusMessage = "Week \(selectedWeek)\(weekNote)"
+        log("Synced roster week \(selectedWeek) (\(linked.provider.shortName))")
+        refreshCachedSummaries()
+    }
+
     private func refreshUpcomingMatchups(linked: LinkedFranchise) async {
         do {
-            let rows = try await TeamSyncService.upcomingMatchups(
-                linked: linked,
-                franchiseId: linked.franchiseId,
-                afterWeek: currentSeasonWeek,
-                throughWeek: seasonEndWeek
-            )
+            let rows: [UpcomingMatchupPreview]
+            if linked.isSleeper {
+                rows = try await SleeperTeamSyncService.upcomingMatchups(
+                    linked: linked,
+                    afterWeek: currentSeasonWeek,
+                    throughWeek: seasonEndWeek
+                )
+            } else {
+                rows = try await TeamSyncService.upcomingMatchups(
+                    linked: linked,
+                    franchiseId: linked.franchiseId,
+                    afterWeek: currentSeasonWeek,
+                    throughWeek: seasonEndWeek
+                )
+            }
             upcomingMatchups = rows
         } catch {
             // Soft — keep prior list if schedule fetch fails.
@@ -217,7 +326,14 @@ final class AppState: ObservableObject {
         isLoadingLeague = true
         defer { isLoadingLeague = false }
         do {
-            leagueReview = try await LeagueReviewService.load(linked: linked, week: selectedWeek)
+            if linked.isSleeper {
+                leagueReview = try await SleeperTeamSyncService.loadLeagueReview(
+                    linked: linked,
+                    week: selectedWeek
+                )
+            } else {
+                leagueReview = try await LeagueReviewService.load(linked: linked, week: selectedWeek)
+            }
             refreshCachedSummaries()
         } catch {
             errorMessage = error.localizedDescription
@@ -389,30 +505,129 @@ final class AppState: ObservableObject {
         return try await MFLClient.shared.myLeagues()
     }
 
+    func connectSleeper(username: String) async throws -> (user: SleeperUser, leagues: [SleeperLeagueSummary]) {
+        let user = try await SleeperClient.shared.user(usernameOrId: username)
+        KeychainStore.set(user.username, for: .sleeperUsername)
+        KeychainStore.set(user.userId, for: .sleeperUserId)
+        let season = (try? await SleeperClient.shared.nflState().season) ?? Calendar.current.mflSeason
+        let leagues = try await SleeperClient.shared.leagues(userId: user.userId, season: season)
+        // Resolve each roster for this user.
+        var resolved: [SleeperLeagueSummary] = []
+        for var league in leagues {
+            if let roster = try? await SleeperClient.shared.resolveRoster(
+                leagueId: league.leagueId,
+                userId: user.userId
+            ) {
+                league.rosterId = roster.rosterId
+                league.franchiseName = roster.teamName
+                resolved.append(league)
+            }
+        }
+        return (user, resolved)
+    }
+
     func selectLeague(_ league: MFLLeagueSummary) {
         guard let context = modelContext else { return }
-        // Replace existing links for simplicity (single franchise MVP)
-        if let existing = try? context.fetch(FetchDescriptor<LinkedFranchise>()) {
-            for item in existing { context.delete(item) }
+        let existing = ((try? context.fetch(FetchDescriptor<LinkedFranchise>())) ?? []).first {
+            LinkedFranchise.matches(
+                $0,
+                provider: .mfl,
+                leagueId: league.leagueId,
+                franchiseId: league.franchiseId
+            )
         }
-        let linked = LinkedFranchise(
-            leagueId: league.leagueId,
-            leagueName: league.name,
-            franchiseId: league.franchiseId,
-            franchiseName: league.franchiseName,
-            host: league.host,
-            season: Calendar.current.mflSeason
-        )
-        context.insert(linked)
+        let linked: LinkedFranchise
+        if let existing {
+            existing.leagueName = league.name
+            existing.franchiseName = league.franchiseName
+            existing.host = league.host
+            existing.season = Calendar.current.mflSeason
+            existing.providerRaw = LeagueProvider.mfl.rawValue
+            existing.updatedAt = .now
+            linked = existing
+        } else {
+            linked = LinkedFranchise(
+                leagueId: league.leagueId,
+                leagueName: league.name,
+                franchiseId: league.franchiseId,
+                franchiseName: league.franchiseName,
+                host: league.host,
+                season: Calendar.current.mflSeason,
+                provider: .mfl
+            )
+            context.insert(linked)
+        }
         try? context.save()
-        linkedFranchise = linked
+        activateLinked(linked)
         showConnect = false
-        log("Linked \(league.name)")
+        log("Linked MFL \(league.name)")
         Task { await syncTeam() }
+    }
+
+    func selectSleeperLeague(_ league: SleeperLeagueSummary, user: SleeperUser) {
+        guard let context = modelContext else { return }
+        guard !league.rosterId.isEmpty else {
+            errorMessage = "Couldn’t find your roster in that Sleeper league."
+            return
+        }
+        let existing = ((try? context.fetch(FetchDescriptor<LinkedFranchise>())) ?? []).first {
+            LinkedFranchise.matches(
+                $0,
+                provider: .sleeper,
+                leagueId: league.leagueId,
+                franchiseId: league.rosterId
+            )
+        }
+        let linked: LinkedFranchise
+        if let existing {
+            existing.leagueName = league.name
+            existing.franchiseName = league.franchiseName
+            existing.season = league.season
+            existing.sleeperUserId = user.userId
+            existing.providerRaw = LeagueProvider.sleeper.rawValue
+            existing.host = "api.sleeper.app"
+            existing.updatedAt = .now
+            linked = existing
+        } else {
+            linked = LinkedFranchise(
+                leagueId: league.leagueId,
+                leagueName: league.name,
+                franchiseId: league.rosterId,
+                franchiseName: league.franchiseName,
+                host: "api.sleeper.app",
+                season: league.season,
+                provider: .sleeper,
+                sleeperUserId: user.userId
+            )
+            context.insert(linked)
+        }
+        try? context.save()
+        activateLinked(linked)
+        showConnect = false
+        log("Linked Sleeper \(league.name)")
+        Task {
+            await SleeperPlayerCatalog.shared.ensureLoaded()
+            await syncTeam()
+            await syncLeagueReview()
+        }
+    }
+
+    private func activateLinked(_ linked: LinkedFranchise) {
+        UserDefaults.standard.set(linked.id, forKey: Self.activeLeagueKey)
+        team = nil
+        leagueReview = nil
+        upcomingMatchups = []
+        teamWeekSummary = nil
+        leagueWeekSummary = nil
+        refreshLinkedLeagues()
     }
 
     func applyManualLineup(starterIds: [String]) async {
         guard let linked = linkedFranchise, let team else { return }
+        if linked.isSleeper {
+            errorMessage = "Sleeper is read-only in Sideline — set your lineup in the Sleeper app."
+            return
+        }
         isSyncing = true
         defer { isSyncing = false }
         do {
@@ -465,7 +680,7 @@ final class AppState: ObservableObject {
 
             var leagueIntel: LeagueIntelSnapshot?
             let needsLeagueIntel = desk == .waiver || desk == .trade || desk == .gm || desk == .draft
-            if needsLeagueIntel, let linked = linkedFranchise {
+            if needsLeagueIntel, let linked = linkedFranchise, linked.isMFL {
                 pushAgentActivity("Analyzing positional strength vs league + draft picks…")
                 leagueIntel = try? await LeagueStrengthService.load(
                     linked: linked,
@@ -481,12 +696,14 @@ final class AppState: ObservableObject {
                 } else {
                     pushAgentActivity("League strength snapshot unavailable — continuing without it")
                 }
+            } else if needsLeagueIntel, linkedFranchise?.isSleeper == true {
+                pushAgentActivity("Sleeper league — skipping MFL strength model")
             }
 
             var playerResearch: String?
             let needsResearch = desk == .waiver || desk == .trade || desk == .gm
             if needsResearch, let linked = linkedFranchise {
-                pushAgentActivity("Researching players on MFL (profiles, news, ranks)…")
+                pushAgentActivity("Researching players (MFL profile + Sleeper intel)…")
                 var researchIds: [String] = []
                 // Top FA candidates by YTD then last week.
                 let faYTD = freeAgents
@@ -505,12 +722,23 @@ final class AppState: ObservableObject {
                     .prefix(4)
                     .map(\.playerId)
                 researchIds.append(contentsOf: dropCandidates)
-                playerResearch = await MFLPlayerResearchService.summarize(
-                    playerIds: researchIds,
-                    linked: linked,
-                    maxPlayers: 10
+
+                var chunks: [String] = []
+                if linked.isMFL {
+                    let mfl = await MFLPlayerResearchService.summarize(
+                        playerIds: researchIds,
+                        linked: linked,
+                        maxPlayers: 10
+                    )
+                    chunks.append(mfl)
+                }
+                let sleeperCtx = await SleeperPlayerCatalog.shared.contextLines(
+                    for: team.allRostered + freeAgents.prefix(8).map { $0 },
+                    limit: 24
                 )
-                pushAgentActivity("Loaded MFL research for \(min(10, Set(researchIds).count)) players")
+                chunks.append(sleeperCtx)
+                playerResearch = chunks.joined(separator: "\n\n")
+                pushAgentActivity("Loaded player research (\(linked.provider.shortName) + Sleeper)")
             }
 
             let llm = LLMClient(provider: llmSettings.provider, model: llmSettings.model, apiKey: apiKey)
@@ -616,6 +844,11 @@ final class AppState: ObservableObject {
     }
 
     private func applyProposal(_ proposal: ActionProposal, linked: LinkedFranchise) async throws -> String {
+        if linked.isSleeper {
+            throw MFLError.decode(
+                "Sleeper leagues are read-only in Sideline. Approve keeps the plan here — apply lineup / waivers / trades in the Sleeper app."
+            )
+        }
         let data = Data(proposal.payloadJSON.utf8)
         switch proposal.kind {
         case .lineup:
@@ -658,6 +891,13 @@ final class AppState: ObservableObject {
     /// Live free-agent lookup for agents / follow-up chat tools.
     func fetchFreeAgents(sort: String = "ytd", limit: Int = 10, position: String? = nil) async throws -> [RosterPlayer] {
         guard let linked = linkedFranchise else { return [] }
+        if linked.isSleeper {
+            var list = try await SleeperTeamSyncService.trendingFreeAgents(limit: max(limit, 15))
+            if let position, !position.isEmpty {
+                list = list.filter { $0.position.uppercased() == position.uppercased() }
+            }
+            return Array(list.prefix(limit))
+        }
         let week = team?.week ?? selectedWeek
         let lastWeek = max(1, week - 1)
         let count = String(min(40, max(limit, 10)))

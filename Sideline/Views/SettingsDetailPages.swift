@@ -107,22 +107,60 @@ struct LeagueSettingsPage: View {
     @EnvironmentObject private var appState: AppState
 
     var body: some View {
-        SettingsPageChrome(title: "League") {
-            if let linked = appState.linkedFranchise {
-                meta("League", linked.leagueName)
-                meta("Franchise", linked.franchiseName)
-                meta("Season", "\(linked.season)")
-                meta("Host", linked.host)
-            } else {
-                Text("No league linked.")
+        SettingsPageChrome(title: "Leagues") {
+            if appState.linkedLeagues.isEmpty {
+                Text("No leagues linked.")
                     .foregroundStyle(BrandTheme.muted)
+            } else {
+                ForEach(appState.linkedLeagues, id: \.id) { link in
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text(link.provider.shortName.uppercased())
+                                .font(BrandTheme.display(10, weight: .bold))
+                                .tracking(0.8)
+                                .foregroundStyle(BrandTheme.muted)
+                            if appState.linkedFranchise?.id == link.id {
+                                Text("ACTIVE")
+                                    .font(BrandTheme.display(10, weight: .bold))
+                                    .tracking(0.8)
+                                    .foregroundStyle(BrandTheme.accent)
+                            }
+                            Spacer()
+                        }
+                        meta("League", link.leagueName)
+                        meta("Team", link.franchiseName)
+                        meta("Season", "\(link.season)")
+                        if link.isMFL {
+                            meta("Host", link.host)
+                        }
+                        HStack(spacing: 12) {
+                            if appState.linkedFranchise?.id != link.id {
+                                Button("Switch") {
+                                    appState.switchActiveLeague(link)
+                                }
+                                .buttonStyle(PrimaryButtonStyle())
+                            }
+                            Button("Remove") {
+                                appState.removeLinkedLeague(link)
+                            }
+                            .font(BrandTheme.body(14, weight: .semibold))
+                            .foregroundStyle(BrandTheme.danger)
+                        }
+                    }
+                    .padding(.vertical, 8)
+                    Divider().overlay(BrandTheme.hairline)
+                }
             }
             Button {
                 appState.showConnect = true
             } label: {
-                Text(appState.linkedFranchise == nil ? "Connect MFL" : "Switch MFL league")
+                Text("Add league")
             }
             .buttonStyle(PrimaryButtonStyle())
+
+            Text("Sideline is a hub for MFL and Sleeper. Approve writes lineups only for MFL; Sleeper stays read-only.")
+                .font(BrandTheme.body(13))
+                .foregroundStyle(BrandTheme.muted)
         }
     }
 

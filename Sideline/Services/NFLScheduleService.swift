@@ -14,6 +14,7 @@ enum NFLScheduleService {
         let url = URL(string: "https://api.myfantasyleague.com/\(season)/export?TYPE=nflSchedule&W=\(week)&JSON=1")!
         var request = URLRequest(url: url)
         request.setValue(MFLClient.userAgent, forHTTPHeaderField: "User-Agent")
+        // Public export — no cookie / login required.
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
@@ -85,15 +86,18 @@ enum NFLScheduleService {
                 p.opponent = info.opponent
                 p.gameKickoff = info.kickoff
                 p.gameLockState = info.lockState
+                p.gameSecondsRemaining = info.gameSecondsRemaining
             } else if scheduleLoaded {
                 // Team absent from a loaded slate → genuine bye week.
                 p.opponent = "BYE"
                 p.gameLockState = "bye"
                 p.gameKickoff = nil
+                p.gameSecondsRemaining = nil
             } else {
                 p.opponent = nil
                 p.gameLockState = "unknown"
                 p.gameKickoff = nil
+                p.gameSecondsRemaining = nil
             }
             return p
         }

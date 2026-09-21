@@ -22,16 +22,17 @@ struct PlayerDetailSheet: View {
                         if isLoading {
                             HStack(spacing: 10) {
                                 ProgressView()
-                                Text("Loading MFL profile…")
-                                    .font(BrandTheme.body(14))
-                                    .foregroundStyle(BrandTheme.muted)
-                            }
-                            .padding(.top, BrandTheme.space(8))
-                        } else if loadFailed, detailHasNoAPIFields {
-                            Text("MFL didn’t return a profile for this player.")
-                                .font(BrandTheme.body(14))
-                                .foregroundStyle(BrandTheme.muted)
-                        } else {
+                Text("Loading profile…")
+                    .font(BrandTheme.body(14))
+                    .foregroundStyle(BrandTheme.muted)
+            }
+            .padding(.top, BrandTheme.space(8))
+        } else if loadFailed, detailHasNoAPIFields {
+            Text("No bio came back for this player. Sideline pulls MFL profile fields when available and enriches with Sleeper (college, depth, injury status).")
+                .font(BrandTheme.body(14))
+                .foregroundStyle(BrandTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
                             profileFields
                             newsBlock
                         }
@@ -69,6 +70,11 @@ struct PlayerDetailSheet: View {
             && detail.topAddsPct == nil
             && (detail.injury == nil || detail.injury?.isEmpty == true)
             && detail.newsHeadlines.isEmpty
+            && detail.college == nil
+            && detail.number == nil
+            && detail.status == nil
+            && detail.yearsExp == nil
+            && detail.depthChart == nil
     }
 
     private var headerBlock: some View {
@@ -90,8 +96,12 @@ struct PlayerDetailSheet: View {
                         .font(BrandTheme.body(14))
                         .foregroundStyle(BrandTheme.muted)
                 }
-                if let lock = player.gameLockState, !lock.isEmpty {
-                    Text(lock.uppercased())
+                if let status = player.gameStatusLabel {
+                    Text(status)
+                        .font(BrandTheme.mono(11, weight: .semibold))
+                        .foregroundStyle(BrandTheme.ink.opacity(0.65))
+                } else if player.gameLockState == "upcoming" {
+                    Text("UPCOMING")
                         .font(BrandTheme.body(11, weight: .semibold))
                         .foregroundStyle(BrandTheme.ink.opacity(0.65))
                 }
@@ -173,6 +183,11 @@ struct PlayerDetailSheet: View {
                 if let age = detail.age { metaRow("Age", age) }
                 if let h = detail.height { metaRow("Height", h) }
                 if let w = detail.weight { metaRow("Weight", "\(w) lb") }
+                if let number = detail.number { metaRow("Number", "#\(number)") }
+                if let college = detail.college { metaRow("College", college) }
+                if let years = detail.yearsExp { metaRow("Exp", "\(years) yr") }
+                if let depth = detail.depthChart { metaRow("Depth", depth) }
+                if let status = detail.status { metaRow("Status", status) }
                 if let adp = detail.adp, adp.uppercased() != "N/A" { metaRow("ADP", adp) }
                 if let rank = detail.mflRank { metaRow("MFL rank", rank) }
                 if let adds = detail.topAddsPct { metaRow("Top adds", "\(adds)%") }
@@ -187,7 +202,7 @@ struct PlayerDetailSheet: View {
     private var newsBlock: some View {
         if let headlines = detail?.newsHeadlines, !headlines.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                Text("NEWS")
+                Text("NOTES")
                     .font(BrandTheme.display(12, weight: .semibold))
                     .foregroundStyle(BrandTheme.muted)
                     .tracking(1)
@@ -215,26 +230,76 @@ struct PlayerDetailSheet: View {
     }
 
     private func load() async {
-        guard let linked = appState.linkedFranchise else {
-            isLoading = false
-            loadFailed = true
-            return
-        }
         isLoading = true
         loadFailed = false
-        let fetched = await MFLPlayerResearchService.fetchDetail(
-            playerId: player.playerId,
-            linked: linked
+        var fetched: PlayerDetail
+        if let linked = appState.linkedFranchise, linked.isMFL {
+            fetched = await MFLPlayerResearchService.fetchDetail(
+                playerId: player.playerId,
+                linked: linked
+            )
+        } else if let linked = appState.linkedFranchise, linked.isSleeper {
+            // Player id is already a Sleeper id.
+            if let record = await SleeperPlayerCatalog.shared.player(id: player.playerId) {
+                fetched = PlayerDetail(
+                    playerId: player.playerId,
+                    name: record.fullName,
+                    age: record.age.map(String.init),
+                    dob: nil,
+                    height: record.height,
+                    weight: record.weight,
+                    adp: nil,
+                    mflRank: nil,
+                    topAddsPct: nil,
+                    injury: record.injuryStatus,
+                    newsHeadlines: [],
+                    college: record.college,
+                    number: record.number,
+                    status: record.status,
+                    yearsExp: record.yearsExp.map(String.init),
+                    depthChart: record.depthChartOrder.map { "\(record.position) #\($0)" },
+                    sleeperPlayerId: record.playerId
+                )
+            } else {
+                fetched = PlayerDetail(
+                    playerId: player.playerId,
+                    name: player.name,
+                    age: nil,
+                    dob: nil,
+                    height: nil,
+                    weight: nil,
+                    adp: nil,
+                    mflRank: nil,
+                    topAddsPct: nil,
+                    injury: player.injuryStatus,
+                    newsHeadlines: []
+                )
+            }
+        } else {
+            fetched = PlayerDetail(
+                playerId: player.playerId,
+                name: player.name,
+                age: nil,
+                dob: nil,
+                height: nil,
+                weight: nil,
+                adp: nil,
+                mflRank: nil,
+                topAddsPct: nil,
+                injury: player.injuryStatus,
+                newsHeadlines: []
+            )
+        }
+
+        // Always try Sleeper name/team match for MFL (and as fill-in).
+        fetched = await SleeperPlayerCatalog.shared.enrichDetail(
+            fetched,
+            name: player.name,
+            team: player.team,
+            position: player.position
         )
         detail = fetched
-        loadFailed = fetched.age == nil
-            && fetched.height == nil
-            && fetched.weight == nil
-            && fetched.adp == nil
-            && fetched.mflRank == nil
-            && fetched.topAddsPct == nil
-            && (fetched.injury == nil || fetched.injury?.isEmpty == true)
-            && fetched.newsHeadlines.isEmpty
+        loadFailed = detailHasNoAPIFields
         isLoading = false
     }
 }

@@ -47,11 +47,13 @@ struct TeamCockpitView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     if appState.linkedFranchise == nil {
-                        Button("Connect MFL") {
+                        Button("Connect") {
                             appState.showConnect = true
                         }
                         .font(BrandTheme.body(14, weight: .semibold))
                         .foregroundStyle(BrandTheme.ink)
+                    } else {
+                        LeagueSwitcherMenu()
                     }
                 }
             }
@@ -131,7 +133,7 @@ struct TeamCockpitView: View {
             if trimmed.caseInsensitiveCompare("Franchise") == .orderedSame { continue }
             return trimmed
         }
-        return appState.linkedFranchise == nil ? "Connect MFL to begin" : "My team"
+        return appState.linkedFranchise == nil ? "Connect a league to begin" : "My team"
     }
 
     private var showsSalaryStrip: Bool {
@@ -500,7 +502,7 @@ struct TeamCockpitView: View {
     }
 
     private var emptyConnect: some View {
-        Text("Link your MFL franchise to load the cockpit. Use Connect MFL up top.")
+        Text("Link an MFL or Sleeper league to load the cockpit. Use Connect up top.")
             .font(BrandTheme.body(15))
             .foregroundStyle(BrandTheme.muted)
             .multilineTextAlignment(.leading)
@@ -538,9 +540,9 @@ struct PlayerRow: View {
                                 .font(BrandTheme.body(12))
                                 .foregroundStyle(BrandTheme.muted)
                         }
-                        if let lock = player.gameLockState, lock != "upcoming", !lock.isEmpty {
-                            Text(lock.uppercased())
-                                .font(BrandTheme.body(10, weight: .semibold))
+                        if let status = player.gameStatusLabel {
+                            Text(status)
+                                .font(BrandTheme.mono(11, weight: .semibold))
                                 .foregroundStyle(BrandTheme.ink.opacity(0.65))
                         }
                         if let injury = player.injuryStatus, !injury.isEmpty {

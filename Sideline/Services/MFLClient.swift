@@ -212,6 +212,7 @@ actor MFLClient {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        ensureCookieLoaded()
         if let cookie {
             request.setValue("MFL_USER_ID=\(cookie)", forHTTPHeaderField: "Cookie")
         }
@@ -234,6 +235,7 @@ actor MFLClient {
     // MARK: - Internals
 
     private func get(_ url: URL, cacheTTL: TimeInterval) async throws -> Data {
+        ensureCookieLoaded()
         let key = url.absoluteString
         if cacheTTL > 0, let hit = cache[key], Date().timeIntervalSince(hit.date) < cacheTTL {
             return hit.data
@@ -248,31 +250,77 @@ actor MFLClient {
         return data
     }
 
+    /// Global (non-league) exports — e.g. `playerProfile`, which only needs `P=` and no `L`.
+    func exportGlobalJSON(
+        season: Int,
+        type: String,
+        extra: [String: String] = [:],
+        cacheTTL: TimeInterval = 300
+    ) async throws -> Data {
+        var comps = URLComponents(string: "https://api.myfantasyleague.com/\(season)/export")!
+        var items = [
+            URLQueryItem(name: "TYPE", value: type),
+            URLQueryItem(name: "JSON", value: "1")
+        ]
+        for (k, v) in extra { items.append(URLQueryItem(name: k, value: v)) }
+        comps.queryItems = items
+        guard let url = comps.url else { throw MFLError.invalidResponse }
+        return try await get(url, cacheTTL: cacheTTL)
+    }
+
+    private func ensureCookieLoaded() {
+        if cookie == nil {
+            cookie = KeychainStore.get(.mflUserCookie)
+        }
+    }
+
     private func perform(
         _ request: URLRequest,
         useCache: Bool,
         cacheTTL: TimeInterval,
         cacheKey: String? = nil
     ) async throws -> (Data, URLResponse) {
-        if let last = lastRequestAt {
-            let elapsed = ContinuousClock.now - last
-            if elapsed < minRequestSpacing {
-                try await Task.sleep(for: minRequestSpacing - elapsed)
+        var lastError: Error?
+        for attempt in 0..<3 {
+            if let last = lastRequestAt {
+                let elapsed = ContinuousClock.now - last
+                if elapsed < minRequestSpacing {
+                    try await Task.sleep(for: minRequestSpacing - elapsed)
+                }
+            }
+            lastRequestAt = .now
+
+            do {
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse else { throw MFLError.invalidResponse }
+                if http.statusCode == 429 {
+                    // Brief backoff — cold-open bursts often trip MFL's limiter.
+                    let delay: Duration = attempt == 0 ? .seconds(2) : .seconds(4)
+                    try await Task.sleep(for: delay)
+                    lastError = MFLError.rateLimited
+                    continue
+                }
+                if !(200...299).contains(http.statusCode) {
+                    let body = String(data: data, encoding: .utf8) ?? ""
+                    throw MFLError.http(http.statusCode, body)
+                }
+                if useCache, cacheTTL > 0, let cacheKey {
+                    cache[cacheKey] = (Date(), data)
+                }
+                return (data, response)
+            } catch let error as MFLError {
+                throw error
+            } catch {
+                // Transient transport failures (flaky Wi‑Fi on launch).
+                lastError = error
+                if attempt < 2 {
+                    try await Task.sleep(for: .milliseconds(800 * (attempt + 1)))
+                    continue
+                }
+                throw error
             }
         }
-        lastRequestAt = .now
-
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw MFLError.invalidResponse }
-        if http.statusCode == 429 { throw MFLError.rateLimited }
-        if !(200...299).contains(http.statusCode) {
-            let body = String(data: data, encoding: .utf8) ?? ""
-            throw MFLError.http(http.statusCode, body)
-        }
-        if useCache, cacheTTL > 0, let cacheKey {
-            cache[cacheKey] = (Date(), data)
-        }
-        return (data, response)
+        throw lastError ?? MFLError.rateLimited
     }
 
     private func parseMyLeagues(_ data: Data) throws -> [MFLLeagueSummary] {

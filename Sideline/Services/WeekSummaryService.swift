@@ -250,7 +250,7 @@ enum WeekSummaryService {
             .filter { ($0.injuryStatus?.isEmpty == false) || ($0.gameLockState == "upcoming") }
             .prefix(8)
             .map(\.playerId)
-        if !newsIds.isEmpty {
+        if !newsIds.isEmpty, linked.isMFL {
             let research = await MFLPlayerResearchService.summarize(
                 playerIds: Array(newsIds),
                 linked: linked,
@@ -258,6 +258,12 @@ enum WeekSummaryService {
             )
             lines.append(research)
         }
+
+        let sleeperIntel = await SleeperPlayerCatalog.shared.contextLines(
+            for: team.starters + team.bench,
+            limit: 16
+        )
+        lines.append(sleeperIntel)
 
         return lines.joined(separator: "\n")
     }

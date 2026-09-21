@@ -11,6 +11,18 @@ final class LinkedFranchise {
     var host: String
     var season: Int
     var updatedAt: Date
+    /// `mfl` or `sleeper` — defaults for lightweight migration of existing links.
+    var providerRaw: String = LeagueProvider.mfl.rawValue
+    /// Sleeper user_id when provider is sleeper (empty for MFL).
+    var sleeperUserId: String = ""
+
+    var provider: LeagueProvider {
+        get { LeagueProvider(rawValue: providerRaw) ?? .mfl }
+        set { providerRaw = newValue.rawValue }
+    }
+
+    var isSleeper: Bool { provider == .sleeper }
+    var isMFL: Bool { provider == .mfl }
 
     init(
         leagueId: String,
@@ -18,16 +30,46 @@ final class LinkedFranchise {
         franchiseId: String,
         franchiseName: String,
         host: String,
-        season: Int
+        season: Int,
+        provider: LeagueProvider = .mfl,
+        sleeperUserId: String = ""
     ) {
-        self.id = "\(leagueId)-\(franchiseId)"
+        self.id = LinkedFranchise.makeId(
+            provider: provider,
+            leagueId: leagueId,
+            franchiseId: franchiseId
+        )
         self.leagueId = leagueId
         self.leagueName = leagueName
         self.franchiseId = franchiseId
         self.franchiseName = franchiseName
         self.host = host
         self.season = season
+        self.providerRaw = provider.rawValue
+        self.sleeperUserId = sleeperUserId
         self.updatedAt = .now
+    }
+
+    static func makeId(provider: LeagueProvider, leagueId: String, franchiseId: String) -> String {
+        "\(provider.rawValue)|\(leagueId)|\(franchiseId)"
+    }
+
+    /// Matches new ids and legacy MFL `leagueId-franchiseId` rows.
+    static func matches(
+        _ link: LinkedFranchise,
+        provider: LeagueProvider,
+        leagueId: String,
+        franchiseId: String
+    ) -> Bool {
+        if link.id == makeId(provider: provider, leagueId: leagueId, franchiseId: franchiseId) {
+            return true
+        }
+        if provider == .mfl, link.id == "\(leagueId)-\(franchiseId)" {
+            return true
+        }
+        return link.provider == provider
+            && link.leagueId == leagueId
+            && link.franchiseId == franchiseId
     }
 }
 
@@ -58,6 +100,8 @@ struct RosterPlayer: Identifiable, Hashable, Codable {
     /// upcoming | started | final | bye | unknown
     var gameLockState: String? = nil
     var gameKickoff: Date? = nil
+    /// NFL game clock seconds remaining (from MFL nflSchedule).
+    var gameSecondsRemaining: Int? = nil
     /// League salary units from MFL (typically full dollars).
     var salary: Double? = nil
     var contractYear: Int? = nil
@@ -75,6 +119,27 @@ struct RosterPlayer: Identifiable, Hashable, Codable {
             return (actual, true)
         }
         return nil
+    }
+
+    /// Compact game-status label for roster rows (clock instead of bare STARTED).
+    var gameStatusLabel: String? {
+        switch gameLockState {
+        case nil, "", "upcoming", "unknown":
+            return nil
+        case "bye":
+            return "BYE"
+        case "final":
+            return "FINAL"
+        case "started":
+            if let secs = gameSecondsRemaining, secs > 0 {
+                let m = secs / 60
+                let s = secs % 60
+                return String(format: "%d:%02d", m, s)
+            }
+            return "LIVE"
+        default:
+            return gameLockState?.uppercased()
+        }
     }
 
     func replacing(
@@ -103,6 +168,7 @@ struct RosterPlayer: Identifiable, Hashable, Codable {
             injuryStatus: injuryStatus ?? self.injuryStatus,
             gameLockState: gameLockState,
             gameKickoff: gameKickoff,
+            gameSecondsRemaining: gameSecondsRemaining,
             salary: salary ?? self.salary,
             contractYear: contractYear ?? self.contractYear
         )

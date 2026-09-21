@@ -5,6 +5,8 @@ enum KeychainStore {
     enum Key: String {
         case mflUserCookie = "sideline.mfl.userCookie"
         case mflUsername = "sideline.mfl.username"
+        case sleeperUsername = "sideline.sleeper.username"
+        case sleeperUserId = "sideline.sleeper.userId"
         case llmOpenAI = "sideline.llm.openai"
         case llmAnthropic = "sideline.llm.anthropic"
         case llmGoogle = "sideline.llm.google"

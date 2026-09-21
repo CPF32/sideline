@@ -244,7 +244,7 @@ enum AgentChatToolkit {
     @MainActor
     private static func researchPlayersText(appState: AppState, args: [String: Any]) async -> String {
         guard let linked = appState.linkedFranchise else {
-            return "No league linked — connect MFL first."
+            return "No league linked — connect MFL or Sleeper first."
         }
         var ids: [String] = []
         if let arr = args["player_ids"] as? [String] {
@@ -258,9 +258,28 @@ enum AgentChatToolkit {
         }
         ids = ids.filter { !$0.isEmpty }
         guard !ids.isEmpty else {
-            return "research_players requires player_ids (array of MFL ids)."
+            return "research_players requires player_ids (array)."
         }
-        return await MFLPlayerResearchService.summarize(playerIds: ids, linked: linked)
+        var chunks: [String] = []
+        if linked.isMFL {
+            chunks.append(await MFLPlayerResearchService.summarize(playerIds: ids, linked: linked))
+        }
+        let rosterHits = (appState.team?.allRostered ?? []).filter { ids.contains($0.playerId) }
+        if !rosterHits.isEmpty {
+            chunks.append(await SleeperPlayerCatalog.shared.contextLines(for: rosterHits, limit: 12))
+        } else if linked.isSleeper {
+            var lines: [String] = ["SLEEPER PLAYERS:"]
+            for id in ids.prefix(12) {
+                if let p = await SleeperPlayerCatalog.shared.player(id: id) {
+                    var bits = ["\(p.fullName) \(p.position) \(p.team)"]
+                    if let inj = p.injuryStatus { bits.append("injury=\(inj)") }
+                    if let st = p.status { bits.append("status=\(st)") }
+                    lines.append("- " + bits.joined(separator: " · "))
+                }
+            }
+            chunks.append(lines.joined(separator: "\n"))
+        }
+        return chunks.joined(separator: "\n\n")
     }
 
     private static func parseArgs(_ json: String) -> [String: Any] {

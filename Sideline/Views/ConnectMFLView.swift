@@ -4,6 +4,9 @@ struct ConnectMFLView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
 
+    /// When true, omit outer NavigationStack / sheet chrome (pushed from ConnectLeagueHubView).
+    var embedded: Bool = false
+
     @State private var username = KeychainStore.get(.mflUsername) ?? ""
     @State private var password = ""
     @State private var leagues: [MFLLeagueSummary] = []
@@ -17,49 +20,61 @@ struct ConnectMFLView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                SidelineBackground()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 28) {
-                        header
-
-                        if step == .credentials {
-                            credentialsBlock
-                        } else {
-                            leaguePickerBlock
-                        }
-                    }
-                    .padding(.horizontal, BrandTheme.pageGutter)
-                    .padding(.top, BrandTheme.space(12))
-                    .padding(.bottom, BrandTheme.space(40))
+        Group {
+            if embedded {
+                content
+            } else {
+                NavigationStack {
+                    content
                 }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text("CONNECT MFL")
-                        .font(BrandTheme.display(16, weight: .bold))
-                        .tracking(1)
+        }
+    }
+
+    private var content: some View {
+        ZStack {
+            SidelineBackground()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    header
+
+                    if step == .credentials {
+                        credentialsBlock
+                    } else {
+                        leaguePickerBlock
+                    }
                 }
+                .padding(.horizontal, BrandTheme.pageGutter)
+                .padding(.top, BrandTheme.space(12))
+                .padding(.bottom, BrandTheme.space(40))
+            }
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("CONNECT MFL")
+                    .font(BrandTheme.display(16, weight: .bold))
+                    .tracking(1)
+            }
+            if !embedded {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
                         .foregroundStyle(BrandTheme.ink)
                 }
-                if step == .pickLeague {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Back") {
-                            step = .credentials
-                            leagues = []
-                            error = nil
-                        }
-                        .foregroundStyle(BrandTheme.muted)
+            }
+            if step == .pickLeague {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Back") {
+                        step = .credentials
+                        leagues = []
+                        error = nil
                     }
+                    .foregroundStyle(BrandTheme.muted)
                 }
             }
         }
-        .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
     }
 
     private var header: some View {
@@ -70,7 +85,7 @@ struct ConnectMFLView: View {
             Text(
                 step == .credentials
                 ? "Sign in with your myfantasyleague.com username and password (same account as the MFL app). Sideline stores a session cookie so Approve can write lineups to MFL."
-                : "Pick the league and franchise Sideline should manage."
+                : "Pick the league and franchise to add to your hub (you can connect more later)."
             )
             .font(BrandTheme.body(14))
             .foregroundStyle(BrandTheme.muted)

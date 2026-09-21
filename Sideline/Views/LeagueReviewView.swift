@@ -13,10 +13,10 @@ struct LeagueReviewView: View {
                 Group {
                     if appState.linkedFranchise == nil {
                         VStack(spacing: 12) {
-                            Text("Connect MFL to review your league.")
+                            Text("Connect MFL or Sleeper to review your league.")
                                 .font(BrandTheme.body(15))
                                 .foregroundStyle(BrandTheme.muted)
-                            Button("Connect MFL") { appState.showConnect = true }
+                            Button("Connect league") { appState.showConnect = true }
                                 .buttonStyle(PrimaryButtonStyle())
                                 .padding(.horizontal, BrandTheme.space(40))
                         }
@@ -45,6 +45,11 @@ struct LeagueReviewView: View {
                     Text(BrandTheme.appName.uppercased())
                         .font(BrandTheme.display(18, weight: .bold))
                         .tracking(1)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    if appState.linkedFranchise != nil {
+                        LeagueSwitcherMenu()
+                    }
                 }
             }
             .task {

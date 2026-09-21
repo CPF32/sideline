@@ -20,7 +20,7 @@ enum SettingsDestination: String, Hashable, CaseIterable, Identifiable {
         switch self {
         case .account: return "Account"
         case .theme: return "Theme"
-        case .league: return "League connection"
+        case .league: return "Leagues"
         case .model: return "Model"
         case .apiKey: return "API key"
         case .teamGoals: return "Team goals"

@@ -40,7 +40,8 @@ struct MainTabView: View {
         .toolbarBackground(BrandTheme.background, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .sheet(isPresented: $appState.showConnect) {
-            ConnectMFLView()
+            ConnectLeagueHubView()
+                .environmentObject(appState)
         }
         .alert("Error", isPresented: Binding(
             get: { appState.errorMessage != nil },
