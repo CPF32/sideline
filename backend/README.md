@@ -12,14 +12,23 @@ iOS app                     Cloudflare Worker                 Hosts
 Start Live Activity
   pushType: .token
 Observe pushToken  ──POST──► /v1/live-activity/register
-                             store session in KV
-Cron (game windows)─────────► fetch MFL liveScoring
-                             or Sleeper matchups
-                  ──APNs───► update content-state
+                             add to la:sessions (KV)
+Cron (game windows)─────────► group sessions by league
+                             fetch each league once
+                             (MFL liveScoring / Sleeper matchups)
+                  ──APNs───► push each user's matchup
 End activity      ──DELETE─► /v1/live-activity/:id
 ```
 
-Cron runs **every minute, only during NFL game windows** (Sat/Sun afternoons, and the Thu/Sun/Mon night games that run past midnight UTC — see `wrangler.toml`). Outside those windows the Worker never wakes. When it does run with no active Live Activities it does a single KV read and no writes; with sessions it writes at most once per tick, and only when a score changed. That keeps it under the KV free tier’s 1,000 writes/day. Foreground app polling (~20s) still fills gaps while Sideline is open.
+Cron runs **every minute, only during NFL game windows** (Sat/Sun afternoons, and the Thu/Sun/Mon night games that run past midnight UTC — see `wrangler.toml`). Outside those windows the Worker never wakes. Foreground app polling (~20s) still fills gaps while Sideline is open.
+
+Each tick costs:
+
+- **KV:** 1 read with no active sessions; otherwise 2 reads and at most 1 write (only when a score changed). All sessions live in `la:sessions` (written only by register/delete) and last-pushed content in `la:state` (written only by the cron). That keeps it well under the free tier's 1,000 writes/day.
+- **Score APIs:** one fetch per active league/week, shared by every user in that league. MFL needs a login cookie, so the Worker uses any registered member's cookie for the whole league.
+- **APNs:** one push per user whose matchup changed.
+
+On the free plan a single run can make 50 outbound requests (league fetches + pushes), which limits how many users can have Live Activities running at once. Workers Paid raises that.
 
 ## Apple setup (one-time)
 

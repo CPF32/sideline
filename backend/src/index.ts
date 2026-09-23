@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { pushLiveActivityUpdate } from "./apns";
-import { contentUnchanged, fetchLiveScores, toContentState } from "./scores";
-import type { ContentState, Env, LiveSession, RegisterBody } from "./types";
+import { contentUnchanged, fetchLeague, leagueKey, snapshotFor, toContentState } from "./scores";
+import type { ApnsEnvironment, ContentState, Env, LiveSession, RegisterBody } from "./types";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -15,25 +15,45 @@ function unauthorized(c: { req: { header: (n: string) => string | undefined }; e
   return !c.env.REGISTER_SECRET || key !== c.env.REGISTER_SECRET;
 }
 
-// KV free tier allows 1,000 writes/day, so the cron must not write unless
-// something changed. Per-session "last pushed content" lives in one shared key
-// (la:last) so a poll writes at most once no matter how many sessions exist.
-const INDEX_KEY = "la:index";
-const LAST_KEY = "la:last";
-const INDEX_TTL = 60 * 60 * 12;
+// KV free tier allows 1,000 writes/day, so all app state lives in two keys:
+//   la:sessions — every registered Live Activity. Written only by register/delete.
+//   la:state    — what the cron last pushed per session. Written only by the cron,
+//                 at most once per tick, and only when a score changed.
+// Keeping one writer per key avoids the cron and the app clobbering each other.
+const SESSIONS_KEY = "la:sessions";
+const STATE_KEY = "la:state";
+const KEY_TTL = 60 * 60 * 12;
+/** Live Activities max out around 8 hours. */
+const SESSION_MAX_AGE = 60 * 60 * 8;
 
-type LastContentMap = Record<string, ContentState>;
+type SessionMap = Record<string, LiveSession>;
 
-async function readIndex(env: Env): Promise<string[]> {
-  return ((await env.SESSIONS.get(INDEX_KEY, "json")) as string[] | null) ?? [];
+type PushState = {
+  content?: ContentState;
+  /** APNs environment that actually worked, if it differs from the app's hint. */
+  environment?: ApnsEnvironment;
+  /** Push token APNs reported gone (410); the session is skipped until it re-registers. */
+  deadToken?: string;
+};
+type StateMap = Record<string, PushState>;
+
+async function readSessions(env: Env): Promise<SessionMap> {
+  return ((await env.SESSIONS.get(SESSIONS_KEY, "json")) as SessionMap | null) ?? {};
 }
 
-async function readLast(env: Env): Promise<LastContentMap> {
-  return ((await env.SESSIONS.get(LAST_KEY, "json")) as LastContentMap | null) ?? {};
+async function writeSessions(env: Env, sessions: SessionMap) {
+  await env.SESSIONS.put(SESSIONS_KEY, JSON.stringify(sessions), { expirationTtl: KEY_TTL });
 }
 
-async function writeLast(env: Env, last: LastContentMap) {
-  await env.SESSIONS.put(LAST_KEY, JSON.stringify(last), { expirationTtl: INDEX_TTL });
+async function readState(env: Env): Promise<StateMap> {
+  return ((await env.SESSIONS.get(STATE_KEY, "json")) as StateMap | null) ?? {};
+}
+
+function isLive(session: LiveSession, state: StateMap, now: number): boolean {
+  return (
+    now - session.updatedAt < SESSION_MAX_AGE &&
+    state[session.id]?.deadToken !== session.pushToken
+  );
 }
 
 /** Register / refresh a Live Activity push session (called from the iOS app). */
@@ -52,7 +72,8 @@ app.post("/v1/live-activity/register", async (c) => {
   }
 
   const now = Math.floor(Date.now() / 1000);
-  const existing = await c.env.SESSIONS.get(`la:${body.activityId}`, "json") as LiveSession | null;
+  const [sessions, state] = await Promise.all([readSessions(c.env), readState(c.env)]);
+  const existing = sessions[body.activityId];
   const preferredEnv =
     body.apnsEnvironment === "production" || body.apnsEnvironment === "sandbox"
       ? body.apnsEnvironment
@@ -78,45 +99,32 @@ app.post("/v1/live-activity/register", async (c) => {
     updatedAt: now,
   };
 
-  // 8h TTL — Live Activities max out around 8 hours anyway.
-  await c.env.SESSIONS.put(`la:${session.id}`, JSON.stringify(session), {
-    expirationTtl: 60 * 60 * 8,
-  });
-
-  // Index for cron sweep.
-  const index = await readIndex(c.env);
-  if (!index.includes(session.id)) {
-    index.push(session.id);
-    await c.env.SESSIONS.put(INDEX_KEY, JSON.stringify(index), { expirationTtl: INDEX_TTL });
-  }
-
-  // Immediate first push so Lock Screen isn't stuck on the local snapshot.
+  // Immediate first push so Lock Screen isn't stuck on the local snapshot. The
+  // cron doesn't know about it and will push once more next tick — harmless.
   try {
-    const scores = await fetchLiveScores(session);
+    const league = await fetchLeague([session]);
+    const scores = league && snapshotFor(session, league);
     if (scores) {
-      const content = toContentState(session, scores);
       const result = await pushLiveActivityUpdate(
         c.env,
         session.pushToken,
-        content,
+        toContentState(session, scores),
         "update",
         session.apnsEnvironment
       );
-      if (result.ok) {
-        const last = await readLast(c.env);
-        last[session.id] = content;
-        await writeLast(c.env, last);
-        if (result.environment && result.environment !== session.apnsEnvironment) {
-          session.apnsEnvironment = result.environment;
-          await c.env.SESSIONS.put(`la:${session.id}`, JSON.stringify(session), {
-            expirationTtl: 60 * 60 * 8,
-          });
-        }
-      }
+      if (result.ok && result.environment) session.apnsEnvironment = result.environment;
     }
   } catch (e) {
     console.error("register immediate push failed", e);
   }
+
+  // Prune expired / dead sessions while we're writing anyway.
+  const next: SessionMap = {};
+  for (const s of Object.values(sessions)) {
+    if (s.id !== session.id && isLive(s, state, now)) next[s.id] = s;
+  }
+  next[session.id] = session;
+  await writeSessions(c.env, next);
 
   return c.json({ ok: true, id: session.id });
 });
@@ -124,11 +132,11 @@ app.post("/v1/live-activity/register", async (c) => {
 app.delete("/v1/live-activity/:id", async (c) => {
   if (unauthorized(c)) return c.json({ error: "unauthorized" }, 401);
   const id = c.req.param("id");
-  const session = (await c.env.SESSIONS.get(`la:${id}`, "json")) as LiveSession | null;
-  const last = await readLast(c.env);
+  const [sessions, state] = await Promise.all([readSessions(c.env), readState(c.env)]);
+  const session = sessions[id];
   if (session) {
     try {
-      const endState = last[id] ?? {
+      const endState = state[id]?.content ?? {
         myScore: 0,
         oppScore: 0,
         opponentName: "Opponent",
@@ -142,94 +150,100 @@ app.delete("/v1/live-activity/:id", async (c) => {
         session.pushToken,
         endState,
         "end",
-        session.apnsEnvironment
+        state[id]?.environment ?? session.apnsEnvironment
       );
     } catch (e) {
       console.error("end push failed", e);
     }
-  }
-  await c.env.SESSIONS.delete(`la:${id}`);
-  const index = await readIndex(c.env);
-  if (index.includes(id)) {
-    await c.env.SESSIONS.put(INDEX_KEY, JSON.stringify(index.filter((x) => x !== id)), {
-      expirationTtl: INDEX_TTL,
-    });
-  }
-  if (id in last) {
-    delete last[id];
-    await writeLast(c.env, last);
+    delete sessions[id];
+    await writeSessions(c.env, sessions);
   }
   return c.json({ ok: true });
 });
 
-async function pollAll(env: Env): Promise<{ checked: number; pushed: number; ended: number }> {
-  const index = await readIndex(env);
-  // Nothing registered → no further KV reads or writes this tick.
-  if (index.length === 0) return { checked: 0, pushed: 0, ended: 0 };
+type PollResult = { sessions: number; leagues: number; pushed: number; ended: number };
 
-  const last = await readLast(env);
-  let lastDirty = false;
+async function pollAll(env: Env): Promise<PollResult> {
+  const sessions = await readSessions(env);
+  // Nothing registered → one KV read, no writes, no API calls.
+  if (Object.keys(sessions).length === 0) return { sessions: 0, leagues: 0, pushed: 0, ended: 0 };
+
+  const state = await readState(env);
+  const now = Math.floor(Date.now() / 1000);
+  let stateDirty = false;
   let pushed = 0;
   let ended = 0;
-  const keep: string[] = [];
 
-  for (const id of index) {
-    const session = (await env.SESSIONS.get(`la:${id}`, "json")) as LiveSession | null;
-    if (!session) continue;
-    keep.push(id);
+  // One fetch per league/week, shared by every user in that league.
+  const byLeague = new Map<string, LiveSession[]>();
+  for (const session of Object.values(sessions)) {
+    if (!isLive(session, state, now)) continue;
+    const key = leagueKey(session);
+    byLeague.set(key, [...(byLeague.get(key) ?? []), session]);
+  }
 
+  for (const [key, members] of byLeague) {
+    let league;
     try {
-      const scores = await fetchLiveScores(session);
-      if (!scores) continue;
-
-      const content = toContentState(session, scores);
-      if (contentUnchanged(last[id], content)) continue;
-
-      const result = await pushLiveActivityUpdate(
-        env,
-        session.pushToken,
-        content,
-        "update",
-        session.apnsEnvironment
-      );
-      if (result.ok) {
-        pushed += 1;
-        last[id] = content;
-        lastDirty = true;
-        // Only rewrite the session when APNs corrected its environment (rare).
-        if (result.environment && result.environment !== session.apnsEnvironment) {
-          session.apnsEnvironment = result.environment;
-          await env.SESSIONS.put(`la:${id}`, JSON.stringify(session), {
-            expirationTtl: 60 * 60 * 8,
-          });
-        }
-      } else if (result.status === 410) {
-        // Token gone — drop session.
-        await env.SESSIONS.delete(`la:${id}`);
-        keep.pop();
-        ended += 1;
-      } else {
-        console.error("apns fail", id, result.status, result.body);
-      }
+      league = await fetchLeague(members);
     } catch (e) {
-      console.error("poll fail", id, e);
+      console.error("league fetch fail", key, e);
+      continue;
+    }
+    if (!league) continue;
+
+    for (const session of members) {
+      try {
+        const scores = snapshotFor(session, league);
+        if (!scores) continue;
+
+        const content = toContentState(session, scores);
+        const prev = state[session.id] ?? {};
+        if (contentUnchanged(prev.content, content)) continue;
+
+        const result = await pushLiveActivityUpdate(
+          env,
+          session.pushToken,
+          content,
+          "update",
+          prev.environment ?? session.apnsEnvironment
+        );
+        if (result.ok) {
+          pushed += 1;
+          state[session.id] = {
+            content,
+            environment:
+              result.environment && result.environment !== session.apnsEnvironment
+                ? result.environment
+                : prev.environment,
+          };
+          stateDirty = true;
+        } else if (result.status === 410) {
+          // Token gone — skip this session until the app registers a new token.
+          state[session.id] = { deadToken: session.pushToken };
+          stateDirty = true;
+          ended += 1;
+        } else {
+          console.error("apns fail", session.id, result.status, result.body);
+        }
+      } catch (e) {
+        console.error("poll fail", session.id, e);
+      }
     }
   }
 
-  // Drop state for sessions that expired or ended.
-  for (const id of Object.keys(last)) {
-    if (!keep.includes(id)) {
-      delete last[id];
-      lastDirty = true;
+  // Forget state for sessions that were deleted or pruned.
+  for (const id of Object.keys(state)) {
+    if (!sessions[id]) {
+      delete state[id];
+      stateDirty = true;
     }
   }
-
-  if (lastDirty) await writeLast(env, last);
-  if (keep.length !== index.length) {
-    await env.SESSIONS.put(INDEX_KEY, JSON.stringify(keep), { expirationTtl: INDEX_TTL });
+  if (stateDirty) {
+    await env.SESSIONS.put(STATE_KEY, JSON.stringify(state), { expirationTtl: KEY_TTL });
   }
 
-  return { checked: index.length, pushed, ended };
+  return { sessions: Object.keys(sessions).length, leagues: byLeague.size, pushed, ended };
 }
 
 app.post("/v1/live-activity/poll", async (c) => {
