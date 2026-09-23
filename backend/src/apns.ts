@@ -65,7 +65,8 @@ async function pushToHost(
       timestamp: Math.floor(Date.now() / 1000),
       event,
       "content-state": contentState,
-      "stale-date": Math.floor(Date.now() / 1000) + 120,
+      // Stale shortly after the next scheduled sync is missed.
+      "stale-date": (contentState.nextSyncAt ?? Math.floor(Date.now() / 1000)) + 120,
       ...(event === "end" ? { "dismissal-date": Math.floor(Date.now() / 1000) } : {}),
     },
   };

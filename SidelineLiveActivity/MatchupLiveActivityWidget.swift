@@ -35,9 +35,13 @@ struct MatchupLiveActivityWidget: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(context.state.statusLine)
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.7))
+                        HStack {
+                            Text(context.state.statusLine)
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(0.7))
+                            Spacer()
+                            syncCountdown(context.state)
+                        }
                         ForEach(context.state.playerLines.prefix(3), id: \.self) { line in
                             Text(line)
                                 .font(.caption2.monospacedDigit())
@@ -113,11 +117,35 @@ struct MatchupLiveActivityWidget: Widget {
                 }
             }
 
-            Text(context.state.statusLine)
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(0.5))
+            HStack {
+                Text(context.state.statusLine)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.5))
+                Spacer()
+                syncCountdown(context.state)
+            }
         }
         .padding(16)
+    }
+
+    /// Live countdown to the backend's next scheduled sync. The system renders the
+    /// timer itself, so it ticks without any extra updates.
+    @ViewBuilder
+    private func syncCountdown(_ state: MatchupLiveAttributes.ContentState) -> some View {
+        if let next = state.nextSyncAt, next > state.lastUpdated {
+            HStack(spacing: 3) {
+                Image(systemName: "arrow.clockwise")
+                Text(
+                    timerInterval: Date(timeIntervalSince1970: state.lastUpdated)...Date(timeIntervalSince1970: next),
+                    countsDown: true
+                )
+                .monospacedDigit()
+                .multilineTextAlignment(.trailing)
+                .frame(width: 34, alignment: .trailing)
+            }
+            .font(.caption2)
+            .foregroundStyle(.white.opacity(0.5))
+        }
     }
 
     private func shortScore(_ value: Double) -> String {

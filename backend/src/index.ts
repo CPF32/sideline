@@ -19,6 +19,8 @@ function unauthorized(c: { req: { header: (n: string) => string | undefined }; e
 //   la:sessions — every registered Live Activity. Written only by register/delete.
 //   la:state    — what the cron last pushed per session. Written only by the cron,
 //                 at most once per tick, and only when a score changed.
+// Every tick still pushes to every live session (even with unchanged scores) so
+// the "next sync" countdown on the Lock Screen resets.
 // Keeping one writer per key avoids the cron and the app clobbering each other.
 const SESSIONS_KEY = "la:sessions";
 const STATE_KEY = "la:state";
@@ -199,7 +201,7 @@ async function pollAll(env: Env): Promise<PollResult> {
 
         const content = toContentState(session, scores);
         const prev = state[session.id] ?? {};
-        if (contentUnchanged(prev.content, content)) continue;
+        const changed = !contentUnchanged(prev.content, content);
 
         const result = await pushLiveActivityUpdate(
           env,
@@ -210,14 +212,15 @@ async function pollAll(env: Env): Promise<PollResult> {
         );
         if (result.ok) {
           pushed += 1;
-          state[session.id] = {
-            content,
-            environment:
-              result.environment && result.environment !== session.apnsEnvironment
-                ? result.environment
-                : prev.environment,
-          };
-          stateDirty = true;
+          const environment =
+            result.environment && result.environment !== session.apnsEnvironment
+              ? result.environment
+              : prev.environment;
+          // Only persist when something meaningful changed, to save KV writes.
+          if (changed || environment !== prev.environment) {
+            state[session.id] = { content, environment };
+            stateDirty = true;
+          }
         } else if (result.status === 410) {
           // Token gone — skip this session until the app registers a new token.
           state[session.id] = { deadToken: session.pushToken };

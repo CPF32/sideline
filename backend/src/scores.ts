@@ -178,6 +178,14 @@ function mflSnapshot(
   };
 }
 
+/** Matches the every-5-minutes cron schedule in wrangler.toml. */
+export const SYNC_INTERVAL_SECONDS = 5 * 60;
+
+/** Next 5-minute cron boundary after `now` (Unix seconds). */
+export function nextSyncAt(now = Math.floor(Date.now() / 1000)): number {
+  return (Math.floor(now / SYNC_INTERVAL_SECONDS) + 1) * SYNC_INTERVAL_SECONDS;
+}
+
 export function toContentState(
   session: LiveSession,
   scores: ScoreSnapshot
@@ -195,6 +203,7 @@ export function toContentState(
     statusLine: status,
     playerLines: scores.playerLines,
     lastUpdated: Math.floor(Date.now() / 1000),
+    nextSyncAt: nextSyncAt(),
   };
 }
 
