@@ -1,25 +1,14 @@
 import SwiftUI
 import SwiftData
 
-struct ApprovalsView: View {
+/// Pending agent proposals sheet (opened from the Team snackbar).
+struct ApprovalsSheet: View {
     @EnvironmentObject private var appState: AppState
-    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
     @Query(sort: \ActionProposal.createdAt, order: .reverse) private var proposals: [ActionProposal]
 
     private var pending: [ActionProposal] {
         proposals.filter { $0.status == .pending }
-    }
-
-    private var history: [ActionProposal] {
-        proposals.filter { $0.status != .pending }
-    }
-
-    /// Drop raw MFL XML that used to be appended onto success copy.
-    private static func displayApplyResult(_ result: String) -> String {
-        guard let xml = result.range(of: "<?xml") else { return result }
-        let cleaned = String(result[..<xml.lowerBound])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return cleaned.isEmpty ? "Lineup submitted to MFL." : cleaned
     }
 
     var body: some View {
@@ -40,70 +29,20 @@ struct ApprovalsView: View {
                     } header: {
                         Text("Needs your approval")
                     }
-
-                    if !history.isEmpty {
-                        Section {
-                            ForEach(Array(history.prefix(40))) { proposal in
-                                VStack(alignment: .leading, spacing: 8) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(proposal.title)
-                                            .font(BrandTheme.body(14, weight: .medium))
-                                            .foregroundStyle(BrandTheme.ink)
-                                        Text("\(proposal.status.rawValue) · \(proposal.agentName)")
-                                            .font(BrandTheme.body(12))
-                                            .foregroundStyle(BrandTheme.muted)
-                                        if let result = proposal.applyResult, !result.isEmpty {
-                                            Text(Self.displayApplyResult(result))
-                                                .font(BrandTheme.body(12))
-                                                .foregroundStyle(
-                                                    proposal.status == .failed
-                                                        ? BrandTheme.danger
-                                                        : BrandTheme.muted
-                                                )
-                                        }
-                                    }
-                                    Button {
-                                        appState.openFollowUpChat(for: proposal)
-                                    } label: {
-                                        Label("Discuss", systemImage: "bubble.left.and.bubble.right")
-                                            .font(BrandTheme.body(13, weight: .semibold))
-                                    }
-                                    .buttonStyle(.plain)
-                                    .foregroundStyle(BrandTheme.ink)
-                                }
-                                .padding(.vertical, BrandTheme.space(4))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                    Button(role: .destructive) {
-                                        deleteHistoryItem(proposal)
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
-                                }
-                            }
-                        } header: {
-                            Text("History")
-                        }
-                    }
                 }
                 .scrollContentBackground(.hidden)
-                .contentMargins(.top, BrandTheme.tabContentTop, for: .scrollContent)
             }
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    Text(BrandTheme.appName.uppercased())
-                        .font(BrandTheme.display(18, weight: .bold))
+                    Text("APPROVALS")
+                        .font(BrandTheme.display(14, weight: .semibold))
                         .tracking(1)
+                        .foregroundStyle(BrandTheme.muted)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    if !history.isEmpty {
-                        Button("Clear history") {
-                            appState.clearApprovalHistory()
-                        }
-                        .font(BrandTheme.body(14, weight: .semibold))
+                    Button("Done") { dismiss() }
+                        .font(BrandTheme.body(15, weight: .semibold))
                         .foregroundStyle(BrandTheme.ink)
-                    }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -118,18 +57,6 @@ struct ApprovalsView: View {
                     .presentationDragIndicator(.visible)
             }
         }
-    }
-
-    private func deleteHistoryItem(_ proposal: ActionProposal) {
-        let proposalId = proposal.id
-        let threads = (try? modelContext.fetch(
-            FetchDescriptor<AgentChatThread>(predicate: #Predicate { $0.proposalId == proposalId })
-        )) ?? []
-        for thread in threads {
-            modelContext.delete(thread)
-        }
-        modelContext.delete(proposal)
-        try? modelContext.save()
     }
 }
 
@@ -162,7 +89,6 @@ struct ProposalRow: View {
             }
         }
 
-        // Fallback: map starterIds onto league slots / player positions.
         var lines: [(String, String, String)] = []
         let slots = appState.team?.leagueRules?.starterSlots ?? []
         var remaining = payload.starterIds

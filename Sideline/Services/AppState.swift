@@ -36,12 +36,13 @@ final class AppState: ObservableObject {
     @Published var leagueWeekSummary: CachedWeekSummary?
     @Published var isGeneratingTeamSummary = false
     @Published var isGeneratingLeagueSummary = false
-
     let auth = AppleAuthService()
     let llmSettings = LLMSettingsStore()
 
     private var modelContext: ModelContext?
     private static let activeLeagueKey = "sideline.activeLeagueLinkId"
+    /// Polls MFL/Sleeper live scores while a Live Activity is active (app foreground).
+    private var liveScorePollTask: Task<Void, Never>?
 
     var availableWeeks: [Int] {
         let end = max(seasonEndWeek, currentSeasonWeek, team?.week ?? selectedWeek, 1)
@@ -67,7 +68,10 @@ final class AppState: ObservableObject {
         refreshPendingCount()
         refreshLinkedLeagues()
         refreshCachedSummaries()
-        Task { await SleeperPlayerCatalog.shared.ensureLoaded() }
+        Task {
+            await PlayerIDCrosswalk.shared.ensureLoaded()
+            await SleeperPlayerCatalog.shared.ensureLoaded()
+        }
     }
 
     /// Removes leftover ScreenshotDemo franchise/proposals so normal sync uses a real MFL link.
@@ -280,6 +284,7 @@ final class AppState: ObservableObject {
             linked.updatedAt = .now
             try? modelContext?.save()
         }
+        await enrichTeamWithFantasyPros(linked: linked)
         await refreshUpcomingMatchups(linked: linked)
         let weekNote: String
         if selectedWeek < currentSeasonWeek {
@@ -292,6 +297,63 @@ final class AppState: ObservableObject {
         statusMessage = "Week \(selectedWeek)\(weekNote)"
         log("Synced roster week \(selectedWeek) (\(linked.provider.shortName))")
         refreshCachedSummaries()
+        if let team {
+            LiveActivityManager.sync(from: team, linked: linked)
+            updateLiveScorePolling(team: team)
+        }
+    }
+
+    /// Keep Lock Screen Live Activity fresh by polling host live scores while the app is open.
+    private func updateLiveScorePolling(team: TeamSnapshot) {
+        let live = team.starters.contains { $0.gameLockState == "started" }
+        guard LiveActivityManager.isEnabled, live else {
+            liveScorePollTask?.cancel()
+            liveScorePollTask = nil
+            return
+        }
+        guard liveScorePollTask == nil else { return }
+        liveScorePollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                guard !Task.isCancelled else { break }
+                guard let self else { break }
+                guard LiveActivityManager.isEnabled else { break }
+                let stillLive = self.team?.starters.contains { $0.gameLockState == "started" } == true
+                guard stillLive else { break }
+                // Avoid stacking syncs if user is already refreshing.
+                guard !self.isSyncing else { continue }
+                await self.syncTeam(week: self.selectedWeek)
+            }
+            await MainActor.run { [weak self] in
+                self?.liveScorePollTask = nil
+            }
+        }
+    }
+
+    /// Overlay FantasyPros weekly projections (fills gaps; prefers FP on Sleeper where host proj is empty).
+    private func enrichTeamWithFantasyPros(linked: LinkedFranchise) async {
+        guard FantasyProsClient.hasAPIKey, var snapshot = team else { return }
+        let season = linked.season
+        let week = max(1, snapshot.week)
+        await FantasyProsIntelService.shared.ensureLoaded(
+            season: season,
+            week: week,
+            hasLiveGames: DataCache.hasLiveGames(in: snapshot)
+        )
+        // Fill projection gaps only — never overwrite Sleeper/MFL host projections with FantasyPros.
+        snapshot.starters = await FantasyProsIntelService.shared.annotateProjections(
+            snapshot.starters, preferFantasyPros: false
+        )
+        snapshot.bench = await FantasyProsIntelService.shared.annotateProjections(
+            snapshot.bench, preferFantasyPros: false
+        )
+        snapshot.ir = await FantasyProsIntelService.shared.annotateProjections(
+            snapshot.ir, preferFantasyPros: false
+        )
+        snapshot.taxi = await FantasyProsIntelService.shared.annotateProjections(
+            snapshot.taxi, preferFantasyPros: false
+        )
+        team = snapshot
     }
 
     private func refreshUpcomingMatchups(linked: LinkedFranchise) async {
@@ -737,8 +799,20 @@ final class AppState: ObservableObject {
                     limit: 24
                 )
                 chunks.append(sleeperCtx)
+                if FantasyProsClient.hasAPIKey {
+                    pushAgentActivity("Loading FantasyPros rankings + projections…")
+                    await FantasyProsIntelService.shared.ensureLoaded(
+                        season: linked.season,
+                        week: team.week
+                    )
+                    let fpCtx = await FantasyProsIntelService.shared.contextLines(
+                        for: team.allRostered + freeAgents.prefix(12).map { $0 },
+                        limit: 28
+                    )
+                    chunks.append(fpCtx)
+                }
                 playerResearch = chunks.joined(separator: "\n\n")
-                pushAgentActivity("Loaded player research (\(linked.provider.shortName) + Sleeper)")
+                pushAgentActivity("Loaded player research (\(linked.provider.shortName) + Sleeper\(FantasyProsClient.hasAPIKey ? " + FantasyPros" : ""))")
             }
 
             let llm = LLMClient(provider: llmSettings.provider, model: llmSettings.model, apiKey: apiKey)
@@ -776,7 +850,8 @@ final class AppState: ObservableObject {
             log("\(desk.agentName) produced \(drafts.count) proposal(s)")
             pushAgentActivity(drafts.isEmpty ? "Done — no proposals" : "Done — \(drafts.count) ready for approval")
             if !drafts.isEmpty {
-                selectedTab = .approvals
+                selectedTab = .team
+                showApprovals = true
             }
             statusMessage = drafts.isEmpty ? "No proposals" : "\(drafts.count) proposal(s) ready"
         } catch {
@@ -797,50 +872,37 @@ final class AppState: ObservableObject {
         guard let linked = linkedFranchise else { return }
         do {
             let result = try await applyProposal(proposal, linked: linked)
-            proposal.status = .applied
-            proposal.resolvedAt = .now
-            proposal.applyResult = result
-            try? modelContext?.save()
-            refreshPendingCount()
             log("Approved \(proposal.title)", detail: result)
+            removeResolvedProposal(proposal)
+            refreshPendingCount()
             await syncTeam(week: selectedWeek)
         } catch {
-            proposal.status = .failed
-            proposal.applyResult = error.localizedDescription
-            try? modelContext?.save()
             errorMessage = error.localizedDescription
+            // Leave pending so the user can discuss or dismiss.
         }
     }
 
     func reject(_ proposal: ActionProposal) {
-        proposal.status = .rejected
-        proposal.resolvedAt = .now
-        try? modelContext?.save()
-        refreshPendingCount()
         log("Rejected \(proposal.title)")
+        removeResolvedProposal(proposal)
+        refreshPendingCount()
     }
 
     func openFollowUpChat(for proposal: ActionProposal) {
         followUpProposal = proposal
     }
 
-    func clearApprovalHistory() {
+    /// Drop resolved proposals immediately (no approval history).
+    private func removeResolvedProposal(_ proposal: ActionProposal) {
         guard let context = modelContext else { return }
-        let descriptor = FetchDescriptor<ActionProposal>(
-            predicate: #Predicate { $0.statusRaw != "pending" }
-        )
-        guard let items = try? context.fetch(descriptor), !items.isEmpty else { return }
-        let ids = Set(items.map(\.id))
-        if let threads = try? context.fetch(FetchDescriptor<AgentChatThread>()) {
-            for thread in threads where ids.contains(thread.proposalId) {
-                context.delete(thread)
-            }
+        let proposalId = proposal.id
+        if let threads = try? context.fetch(
+            FetchDescriptor<AgentChatThread>(predicate: #Predicate { $0.proposalId == proposalId })
+        ) {
+            for thread in threads { context.delete(thread) }
         }
-        for item in items {
-            context.delete(item)
-        }
+        context.delete(proposal)
         try? context.save()
-        log("Cleared \(items.count) approval history item(s)")
     }
 
     private func applyProposal(_ proposal: ActionProposal, linked: LinkedFranchise) async throws -> String {

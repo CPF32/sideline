@@ -28,19 +28,25 @@ Sideline is a local-first iOS app for MyFantasyLeague managers. Connect your lea
 | UI | SwiftUI |
 | Persistence | SwiftData |
 | Auth | Sign in with Apple |
-| League data | MyFantasyLeague export + import |
-| Session | MFL cookie in Keychain |
+| League data | MyFantasyLeague + Sleeper |
+| Session | MFL cookie / Sleeper ids in Keychain |
 | LLMs | OpenAI · Anthropic · Google · OpenRouter |
+| Live Activities | ActivityKit + optional Cloudflare Worker (`backend/`) pushing APNs |
 
 ## Project layout
 
 ```
 sideline_ai/
-├── Sideline/           # App sources (Models, Services, Views, Theme)
-├── Docs/               # MFL client notes
-├── project.yml         # XcodeGen project
-└── Sideline.xcodeproj  # Generated Xcode project
+├── Sideline/              # App sources
+├── Shared/                # ActivityKit attributes (app + widget)
+├── SidelineLiveActivity/  # Live Activity widget extension
+├── backend/               # Cloudflare Worker — polls MFL/Sleeper, pushes APNs
+├── Docs/                  # MFL notes + Live Activity backend
+├── project.yml
+└── Sideline.xcodeproj
 ```
+
+Live Activity push backend: see [`backend/README.md`](backend/README.md).
 
 ## Setup
 

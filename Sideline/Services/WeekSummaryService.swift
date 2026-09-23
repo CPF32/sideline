@@ -265,6 +265,15 @@ enum WeekSummaryService {
         )
         lines.append(sleeperIntel)
 
+        if FantasyProsClient.hasAPIKey {
+            await FantasyProsIntelService.shared.ensureLoaded(season: linked.season, week: week)
+            let fp = await FantasyProsIntelService.shared.contextLines(
+                for: team.starters + team.bench,
+                limit: 20
+            )
+            lines.append(fp)
+        }
+
         return lines.joined(separator: "\n")
     }
 

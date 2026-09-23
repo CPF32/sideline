@@ -9,29 +9,76 @@ actor SleeperPlayerCatalog {
     private var loadedAt: Date?
     private let maxAge: TimeInterval = 86_400
 
+    /// Surfaced on player sheet when the NFL dump fails or is empty.
+    private(set) var lastStatus: String?
+
+    var playerCount: Int { byId.count }
+
+    private var diskURL: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("sideline-sleeper-players-nfl.json")
+    }
+
     func ensureLoaded() async {
-        if let loadedAt, Date().timeIntervalSince(loadedAt) < maxAge, !byId.isEmpty { return }
-        guard let data = try? await SleeperClient.shared.allPlayers() else { return }
-        ingest(data)
+        if let loadedAt, Date().timeIntervalSince(loadedAt) < maxAge, !byId.isEmpty {
+            lastStatus = "\(byId.count) players cached"
+            return
+        }
+
+        // Prefer on-disk cache (avoids re-downloading ~10MB on every cold start).
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: diskURL.path),
+           let modified = attrs[.modificationDate] as? Date,
+           Date().timeIntervalSince(modified) < maxAge,
+           let data = try? Data(contentsOf: diskURL),
+           !data.isEmpty {
+            ingest(data)
+            if !byId.isEmpty {
+                lastStatus = "\(byId.count) players (disk)"
+                return
+            }
+        }
+
+        do {
+            let data = try await SleeperClient.shared.allPlayers()
+            ingest(data)
+            if !byId.isEmpty {
+                try? data.write(to: diskURL, options: .atomic)
+                lastStatus = "\(byId.count) players loaded"
+            } else {
+                lastStatus = "Sleeper player dump parsed empty"
+            }
+        } catch {
+            lastStatus = "Sleeper dump failed: \(error.localizedDescription)"
+            // Soft fail — keep prior in-memory cache if any.
+        }
     }
 
     func player(id: String) async -> SleeperPlayerRecord? {
         await ensureLoaded()
-        return byId[id]
+        let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let hit = byId[trimmed] { return hit }
+        // Some feeds stringify ints with trailing artifacts.
+        if let intId = Int(trimmed), let hit = byId[String(intId)] { return hit }
+        return nil
     }
 
     func match(name: String, team: String, position: String) async -> SleeperPlayerRecord? {
         await ensureLoaded()
         let (first, last) = splitName(name)
-        let pos = position.uppercased()
+        let pos = normalizePos(position)
         let teamKey = NFLScheduleService.normalizeTeam(team)
         let key = "\(last.lowercased())|\(first.lowercased())|\(pos)|\(teamKey)"
         if let hit = bySearchKey[key] { return hit }
+        // Also try raw Sleeper DEF key if we normalized to DST.
+        if pos == "DST" {
+            let defKey = "\(last.lowercased())|\(first.lowercased())|DEF|\(teamKey)"
+            if let hit = bySearchKey[defKey] { return hit }
+        }
 
         // Relaxed: last + pos + team
         let relaxed = byId.values.first {
             $0.lastName.compare(last, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
-                && $0.position.uppercased() == pos
+                && positionsMatch($0.position, pos)
                 && (teamKey.isEmpty || NFLScheduleService.normalizeTeam($0.team) == teamKey
                     || teamAliasesMatch(teamKey, NFLScheduleService.normalizeTeam($0.team)))
         }
@@ -44,25 +91,46 @@ actor SleeperPlayerCatalog {
         }
     }
 
+    private func normalizePos(_ position: String) -> String {
+        let p = position.uppercased()
+        if p == "DEF" || p == "D/ST" || p == "D" || p == "DST" { return "DST" }
+        return p
+    }
+
+    private func positionsMatch(_ a: String, _ b: String) -> Bool {
+        normalizePos(a) == normalizePos(b)
+    }
+
+    /// Build a PlayerDetail from a Sleeper record (formatted for the sheet).
+    func detail(from record: SleeperPlayerRecord) -> PlayerDetail {
+        PlayerDetail(
+            playerId: record.playerId,
+            name: record.fullName,
+            age: record.age.map(String.init),
+            dob: nil,
+            height: formatHeight(record.height),
+            weight: nonempty(record.weight),
+            adp: nil,
+            mflRank: nil,
+            topAddsPct: nil,
+            injury: nonempty(record.injuryStatus),
+            newsHeadlines: [],
+            college: nonempty(record.college),
+            number: nonempty(record.number),
+            status: nonempty(record.status),
+            yearsExp: record.yearsExp.map(String.init),
+            depthChart: record.depthChartOrder.map { "\(record.position) #\($0)" },
+            sleeperPlayerId: record.playerId
+        )
+    }
+
     func enrichDetail(_ base: PlayerDetail, name: String, team: String, position: String) async -> PlayerDetail {
+        // Prefer exact Sleeper id when the sheet already has one.
+        if let sid = base.sleeperPlayerId, let s = await player(id: sid) {
+            return merge(base, with: s)
+        }
         guard let s = await match(name: name, team: team, position: position) else { return base }
-        var d = base
-        if d.name == nil || d.name?.isEmpty == true { d.name = s.fullName }
-        if d.age == nil, let age = s.age { d.age = String(age) }
-        if d.height == nil { d.height = formatHeight(s.height) }
-        if d.weight == nil { d.weight = s.weight }
-        if d.injury == nil || d.injury?.isEmpty == true {
-            d.injury = s.injuryStatus
-        }
-        d.college = s.college ?? d.college
-        d.number = s.number ?? d.number
-        d.status = s.status ?? d.status
-        if let y = s.yearsExp { d.yearsExp = String(y) }
-        if let order = s.depthChartOrder {
-            d.depthChart = "\(s.position) #\(order)"
-        }
-        d.sleeperPlayerId = s.playerId
-        return d
+        return merge(base, with: s)
     }
 
     /// Compact lines for agent / summary prompts.
@@ -72,7 +140,13 @@ actor SleeperPlayerCatalog {
         var count = 0
         for p in players {
             guard count < limit else { break }
-            guard let s = await match(name: p.name, team: p.team, position: p.position) else { continue }
+            let s: SleeperPlayerRecord?
+            if let byId = await player(id: p.playerId) {
+                s = byId
+            } else {
+                s = await match(name: p.name, team: p.team, position: p.position)
+            }
+            guard let s else { continue }
             var bits: [String] = ["\(s.fullName) \(s.position) \(s.team)"]
             if let inj = s.injuryStatus, !inj.isEmpty { bits.append("injury=\(inj)") }
             if let st = s.status, !st.isEmpty { bits.append("status=\(st)") }
@@ -86,6 +160,26 @@ actor SleeperPlayerCatalog {
             lines.append("(no sleeper matches)")
         }
         return lines.joined(separator: "\n")
+    }
+
+    private func merge(_ base: PlayerDetail, with s: SleeperPlayerRecord) -> PlayerDetail {
+        var d = base
+        if d.name == nil || d.name?.isEmpty == true { d.name = s.fullName }
+        if d.age == nil, let age = s.age { d.age = String(age) }
+        if d.height == nil { d.height = formatHeight(s.height) }
+        if d.weight == nil { d.weight = nonempty(s.weight) }
+        if d.injury == nil || d.injury?.isEmpty == true {
+            d.injury = nonempty(s.injuryStatus)
+        }
+        if d.college == nil { d.college = nonempty(s.college) }
+        if d.number == nil { d.number = nonempty(s.number) }
+        if d.status == nil { d.status = nonempty(s.status) }
+        if d.yearsExp == nil, let y = s.yearsExp { d.yearsExp = String(y) }
+        if d.depthChart == nil, let order = s.depthChartOrder {
+            d.depthChart = "\(s.position) #\(order)"
+        }
+        d.sleeperPlayerId = s.playerId
+        return d
     }
 
     private func ingest(_ data: Data) {
@@ -106,20 +200,21 @@ actor SleeperPlayerCatalog {
                 fullName: [first, last].filter { !$0.isEmpty }.joined(separator: " "),
                 position: pos,
                 team: team,
-                number: intOrString(row["number"]),
-                height: row["height"] as? String,
-                weight: row["weight"] as? String,
-                age: row["age"] as? Int,
-                college: row["college"] as? String,
-                status: row["status"] as? String,
-                injuryStatus: row["injury_status"] as? String,
-                yearsExp: row["years_exp"] as? Int,
-                depthChartPosition: row["depth_chart_position"] as? Int,
-                depthChartOrder: row["depth_chart_order"] as? Int
+                number: stringValue(row["number"]),
+                height: stringValue(row["height"]),
+                weight: stringValue(row["weight"]),
+                age: intValue(row["age"]),
+                college: stringValue(row["college"]),
+                status: stringValue(row["status"]),
+                injuryStatus: stringValue(row["injury_status"]),
+                yearsExp: intValue(row["years_exp"]),
+                depthChartPosition: intValue(row["depth_chart_position"]),
+                depthChartOrder: intValue(row["depth_chart_order"])
             )
             byId[id] = record
             byKey[record.searchKey] = record
         }
+        guard !byId.isEmpty else { return }
         self.byId = byId
         self.bySearchKey = byKey
         self.loadedAt = .now
@@ -157,17 +252,36 @@ actor SleeperPlayerCatalog {
     }
 
     private func formatHeight(_ raw: String?) -> String? {
-        guard let raw, !raw.isEmpty else { return nil }
-        if raw.contains("'") { return raw }
+        guard let raw = nonempty(raw) else { return nil }
+        if raw.contains("'") || raw.contains("\"") { return raw }
         if let inches = Int(raw) {
             return "\(inches / 12)'\(inches % 12)\""
         }
         return raw
     }
 
-    private func intOrString(_ any: Any?) -> String? {
-        if let s = any as? String { return s }
+    private func nonempty(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
+    }
+
+    private func stringValue(_ any: Any?) -> String? {
+        if let s = any as? String {
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.isEmpty ? nil : t
+        }
         if let i = any as? Int { return String(i) }
+        if let d = any as? Double { return String(Int(d)) }
+        if let n = any as? NSNumber { return n.stringValue }
+        return nil
+    }
+
+    private func intValue(_ any: Any?) -> Int? {
+        if let i = any as? Int { return i }
+        if let d = any as? Double { return Int(d) }
+        if let s = any as? String { return Int(s) }
+        if let n = any as? NSNumber { return n.intValue }
         return nil
     }
 }

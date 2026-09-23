@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 /// Launch-arg helpers for App Store marketing screenshots.
-/// Pass `-ScreenshotDemo` and optionally `-ScreenshotTab <team|league|agents|approvals|settings>`.
+/// Pass `-ScreenshotDemo` and optionally `-ScreenshotTab <team|league|agents|settings>`.
 enum ScreenshotDemo {
     static let demoLeagueId = "99999"
     static let demoHost = "www64.myfantasyleague.com"
@@ -19,7 +19,7 @@ enum ScreenshotDemo {
         case "team": return .team
         case "league": return .league
         case "agents": return .agents
-        case "approvals": return .approvals
+        case "approvals": return .team
         case "settings": return .settings
         default: return nil
         }

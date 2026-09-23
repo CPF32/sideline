@@ -23,8 +23,12 @@ targets:
       - path: Sideline
         excludes:
           - "**/*.md"
+      - path: Shared
     resources:
       - path: Sideline/Assets.xcassets
+    dependencies:
+      - target: SidelineLiveActivity
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.cpf32.sideline
@@ -38,6 +42,7 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_UIRequiresFullScreen: YES
         INFOPLIST_KEY_NSCameraUsageDescription: Sideline uses the camera to scan an API key from a QR code or on-screen text.
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
         CODE_SIGN_ENTITLEMENTS: Sideline/Sideline.entitlements
         CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -47,6 +52,7 @@ targets:
       properties:
         com.apple.developer.applesignin:
           - Default
+        aps-environment: development
     info:
       path: Sideline/Info.plist
       properties:
@@ -57,13 +63,35 @@ targets:
           - UIInterfaceOrientationPortrait
         CFBundleDisplayName: Sideline
         NSCameraUsageDescription: Sideline uses the camera to scan an API key from a QR code or on-screen text.
+        NSSupportsLiveActivities: true
+        NSSupportsLiveActivitiesFrequentUpdates: true
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: false
+  SidelineLiveActivity:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: SidelineLiveActivity
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cpf32.sideline.LiveActivity
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: false
+        INFOPLIST_FILE: SidelineLiveActivity/Info.plist
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/Frameworks"
+          - "@executable_path/../../Frameworks"
+        SKIP_INSTALL: true
 schemes:
   Sideline:
     build:
       targets:
         Sideline: all
+        SidelineLiveActivity: all
     run:
       config: Debug
     archive:

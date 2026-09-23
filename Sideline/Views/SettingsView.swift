@@ -1,15 +1,13 @@
 import SwiftUI
 
 enum SettingsDestination: String, Hashable, CaseIterable, Identifiable {
-    case account
     case theme
     case league
     case model
     case apiKey
+    case fantasyPros
     case teamGoals
     case agentCriteria
-    case desks
-    case limits
     case activity
     case about
     case signOut
@@ -18,15 +16,13 @@ enum SettingsDestination: String, Hashable, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .account: return "Account"
-        case .theme: return "Theme"
+        case .theme: return "Appearance"
         case .league: return "Leagues"
         case .model: return "Model"
         case .apiKey: return "API key"
+        case .fantasyPros: return "FantasyPros"
         case .teamGoals: return "Team goals"
         case .agentCriteria: return "Agent criteria"
-        case .desks: return "Agent desks"
-        case .limits: return "Limits & guardrails"
         case .activity: return "Activity"
         case .about: return "About the developer"
         case .signOut: return "Sign out"
@@ -35,15 +31,13 @@ enum SettingsDestination: String, Hashable, CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
-        case .account: return "person"
-        case .theme: return "circle.lefthalf.filled"
+        case .theme: return "paintpalette"
         case .league: return "link"
         case .model: return "cpu"
         case .apiKey: return "key"
+        case .fantasyPros: return "chart.line.uptrend.xyaxis"
         case .teamGoals: return "flag"
         case .agentCriteria: return "slider.horizontal.3"
-        case .desks: return "square.grid.2x2"
-        case .limits: return "shield"
         case .activity: return "list.bullet"
         case .about: return "cup.and.saucer"
         case .signOut: return "rectangle.portrait.and.arrow.right"
@@ -58,7 +52,7 @@ struct SettingsView: View {
     @State private var showSignOutConfirm = false
 
     private let rows: [SettingsDestination] = [
-        .account, .theme, .league, .model, .apiKey, .teamGoals, .agentCriteria, .desks, .limits, .activity, .about
+        .league, .model, .apiKey, .fantasyPros, .teamGoals, .agentCriteria, .activity, .theme, .about
     ]
 
     var body: some View {
@@ -150,15 +144,13 @@ struct SettingsDetailRouter: View {
     var body: some View {
         Group {
             switch destination {
-            case .account: AccountSettingsPage()
             case .theme: ThemeSettingsPage()
             case .league: LeagueSettingsPage()
             case .model: ModelSettingsPage(llm: appState.llmSettings)
             case .apiKey: APIKeySettingsPage(llm: appState.llmSettings)
+            case .fantasyPros: FantasyProsSettingsPage()
             case .teamGoals: TeamGoalsSettingsPage()
             case .agentCriteria: AgentCriteriaListPage()
-            case .desks: DesksSettingsPage()
-            case .limits: LimitsSettingsPage()
             case .activity: ActivitySettingsPage()
             case .about: AboutDeveloperSettingsPage()
             case .signOut: EmptyView()

@@ -42,7 +42,6 @@ actor SleeperClient {
     static let shared = SleeperClient()
 
     private let session: URLSession
-    private var cache: [String: (date: Date, data: Data)] = [:]
 
     init(session: URLSession = .shared) {
         self.session = session
@@ -51,7 +50,7 @@ actor SleeperClient {
     func user(usernameOrId: String) async throws -> SleeperUser {
         let trimmed = usernameOrId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw SleeperError.userNotFound }
-        let data = try await get("https://api.sleeper.app/v1/user/\(trimmed.urlPathEncoded)", cacheTTL: 300)
+        let data = try await get("https://api.sleeper.app/v1/user/\(trimmed.urlPathEncoded)", policy: .standard)
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let userId = root["user_id"] as? String ?? (root["user_id"] as? Int).map(String.init)
         else { throw SleeperError.userNotFound }
@@ -66,7 +65,7 @@ actor SleeperClient {
     func leagues(userId: String, season: Int) async throws -> [SleeperLeagueSummary] {
         let data = try await get(
             "https://api.sleeper.app/v1/user/\(userId.urlPathEncoded)/leagues/nfl/\(season)",
-            cacheTTL: 120
+            policy: .standard
         )
         guard let arr = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
             throw SleeperError.decode
@@ -85,29 +84,59 @@ actor SleeperClient {
     }
 
     func rosters(leagueId: String) async throws -> Data {
-        try await get("https://api.sleeper.app/v1/league/\(leagueId.urlPathEncoded)/rosters", cacheTTL: 60)
+        try await get("https://api.sleeper.app/v1/league/\(leagueId.urlPathEncoded)/rosters", policy: .standard)
     }
 
     func users(leagueId: String) async throws -> Data {
-        try await get("https://api.sleeper.app/v1/league/\(leagueId.urlPathEncoded)/users", cacheTTL: 300)
+        try await get("https://api.sleeper.app/v1/league/\(leagueId.urlPathEncoded)/users", policy: .standard)
     }
 
-    func matchups(leagueId: String, week: Int) async throws -> Data {
+    func matchups(leagueId: String, week: Int, hasLiveGames: Bool = false) async throws -> Data {
         try await get(
             "https://api.sleeper.app/v1/league/\(leagueId.urlPathEncoded)/matchups/\(week)",
-            cacheTTL: 30
+            policy: .liveAware(hasLiveGames: hasLiveGames)
         )
+    }
+
+    func league(leagueId: String) async throws -> Data {
+        try await get(
+            "https://api.sleeper.app/v1/league/\(leagueId.urlPathEncoded)",
+            policy: .standard
+        )
+    }
+
+    /// Undocumented but widely used: weekly player projections (pts_ppr / pts_half_ppr / pts_std).
+    func weeklyProjections(season: Int, week: Int) async throws -> Data {
+        try await get(
+            "https://api.sleeper.com/projections/nfl/\(season)/\(week)?season_type=regular",
+            policy: .standard
+        )
+    }
+
+    /// Infer PPR / half / std from league scoring_settings.rec.
+    func leagueScoringKey(leagueId: String) async -> String {
+        guard let data = try? await league(leagueId: leagueId),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let scoring = root["scoring_settings"] as? [String: Any]
+        else { return "pts_ppr" }
+        let rec = (scoring["rec"] as? Double)
+            ?? (scoring["rec"] as? Int).map(Double.init)
+            ?? Double(scoring["rec"] as? String ?? "")
+            ?? 0
+        if rec >= 0.9 { return "pts_ppr" }
+        if rec >= 0.4 { return "pts_half_ppr" }
+        return "pts_std"
     }
 
     func transactions(leagueId: String, week: Int) async throws -> Data {
         try await get(
             "https://api.sleeper.app/v1/league/\(leagueId.urlPathEncoded)/transactions/\(week)",
-            cacheTTL: 120
+            policy: .standard
         )
     }
 
     func nflState() async throws -> (week: Int, season: Int) {
-        let data = try await get("https://api.sleeper.app/v1/state/nfl", cacheTTL: 300)
+        let data = try await get("https://api.sleeper.app/v1/state/nfl", policy: .standard)
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw SleeperError.decode
         }
@@ -121,14 +150,17 @@ actor SleeperClient {
     }
 
     func allPlayers() async throws -> Data {
-        // Huge payload — cache a day.
-        try await get("https://api.sleeper.app/v1/players/nfl", cacheTTL: 86_400)
+        try await get(
+            "https://api.sleeper.app/v1/players/nfl",
+            policy: .day,
+            persistToDisk: true
+        )
     }
 
     func trendingAdds(limit: Int = 25) async throws -> Data {
         try await get(
             "https://api.sleeper.app/v1/players/nfl/trending/add?lookback_hours=48&limit=\(limit)",
-            cacheTTL: 300
+            policy: .standard
         )
     }
 
@@ -159,22 +191,27 @@ actor SleeperClient {
         return (rosterId, teamName)
     }
 
-    private func get(_ urlString: String, cacheTTL: TimeInterval) async throws -> Data {
-        if cacheTTL > 0, let hit = cache[urlString], Date().timeIntervalSince(hit.date) < cacheTTL {
-            return hit.data
+    private func get(
+        _ urlString: String,
+        policy: DataCache.Policy,
+        persistToDisk: Bool = false
+    ) async throws -> Data {
+        try await DataCache.shared.data(
+            key: "sleeper:\(urlString)",
+            policy: policy,
+            persistToDisk: persistToDisk
+        ) {
+            guard let url = URL(string: urlString) else { throw SleeperError.decode }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = urlString.contains("/players/nfl") ? 120 : 30
+            request.setValue("Sideline/1.0 (com.cpf32.sideline; iOS)", forHTTPHeaderField: "User-Agent")
+            let (data, response) = try await self.session.data(for: request)
+            guard let http = response as? HTTPURLResponse else { throw SleeperError.decode }
+            if http.statusCode == 404 { throw SleeperError.userNotFound }
+            guard (200...299).contains(http.statusCode) else { throw SleeperError.http(http.statusCode) }
+            if data.isEmpty || data == Data("null".utf8) { throw SleeperError.empty }
+            return data
         }
-        guard let url = URL(string: urlString) else { throw SleeperError.decode }
-        var request = URLRequest(url: url)
-        request.setValue("Sideline/1.0 (com.cpf32.sideline; iOS)", forHTTPHeaderField: "User-Agent")
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw SleeperError.decode }
-        if http.statusCode == 404 { throw SleeperError.userNotFound }
-        guard (200...299).contains(http.statusCode) else { throw SleeperError.http(http.statusCode) }
-        if data.isEmpty || data == Data("null".utf8) { throw SleeperError.empty }
-        if cacheTTL > 0 {
-            cache[urlString] = (Date(), data)
-        }
-        return data
     }
 }
 

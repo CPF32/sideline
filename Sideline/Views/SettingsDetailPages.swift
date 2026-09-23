@@ -54,26 +54,13 @@ private func labeledField<Content: View>(_ title: String, @ViewBuilder content: 
 
 // MARK: - Pages
 
-struct AccountSettingsPage: View {
-    @EnvironmentObject private var appState: AppState
-
-    var body: some View {
-        SettingsPageChrome(title: "Account") {
-            Text(appState.auth.displayName.isEmpty ? "Manager" : appState.auth.displayName)
-                .font(BrandTheme.display(28, weight: .bold))
-                .foregroundStyle(BrandTheme.ink)
-            Text("Signed in on this device. League and API credentials stay local.")
-                .font(BrandTheme.body(14))
-                .foregroundStyle(BrandTheme.muted)
-        }
-    }
-}
-
 struct ThemeSettingsPage: View {
+    @EnvironmentObject private var appState: AppState
     @AppStorage("sideline.appearance.darkMode") private var isDarkMode = false
+    @AppStorage("sideline.liveActivity.enabled") private var liveActivityEnabled = false
 
     var body: some View {
-        SettingsPageChrome(title: "Theme") {
+        SettingsPageChrome(title: "Appearance") {
             Toggle(isOn: $isDarkMode) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Dark mode")
@@ -96,7 +83,37 @@ struct ThemeSettingsPage: View {
                     )
             )
 
-            Text("Sideline ignores the system light/dark setting. Everything — backgrounds, text, chrome, and controls — follows this toggle.")
+            Toggle(isOn: $liveActivityEnabled) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Matchup Live Activity")
+                        .font(BrandTheme.body(16, weight: .semibold))
+                        .foregroundStyle(BrandTheme.ink)
+                    Text("Lock Screen + Dynamic Island while starters are in games. Scores refresh while Sideline is open; background updates use the Sideline live backend.")
+                        .font(BrandTheme.body(13))
+                        .foregroundStyle(BrandTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .tint(BrandTheme.accent)
+            .padding(.horizontal, BrandTheme.pageGutterTight)
+            .padding(.vertical, BrandTheme.space(12))
+            .background(
+                RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                    .fill(BrandTheme.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                            .stroke(BrandTheme.hairline, lineWidth: 1)
+                    )
+            )
+            .onChange(of: liveActivityEnabled) { _, enabled in
+                if !enabled {
+                    Task { await LiveActivityManager.endAll() }
+                } else if let team = appState.team, let linked = appState.linkedFranchise {
+                    LiveActivityManager.sync(from: team, linked: linked)
+                }
+            }
+
+            Text("Sideline ignores the system light/dark setting.")
                 .font(BrandTheme.body(13))
                 .foregroundStyle(BrandTheme.muted)
         }
@@ -423,13 +440,197 @@ struct APIKeySettingsPage: View {
     }
 }
 
+struct FantasyProsSettingsPage: View {
+    @EnvironmentObject private var appState: AppState
+    @State private var apiKeyDraft = KeychainStore.get(.fantasyProsAPIKey) ?? ""
+    @State private var isKeyVisible = false
+    @State private var scoring = FantasyProsClient.scoring
+    @State private var banner: String?
+    @State private var bannerError = false
+    @State private var isTesting = false
+    @State private var showScanner = false
+
+    var body: some View {
+        SettingsPageChrome(title: "FantasyPros") {
+            if let banner {
+                Text(banner)
+                    .font(BrandTheme.body(14, weight: .medium))
+                    .foregroundStyle(bannerError ? BrandTheme.danger : BrandTheme.ink)
+                    .padding(BrandTheme.space(12))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(bannerError ? BrandTheme.danger.opacity(0.18) : BrandTheme.accentWash)
+                    .clipShape(RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous))
+            }
+
+            Text("Sideline joins FantasyPros to MFL and Sleeper via the DynastyProcess player-ID map, so ranks, projections, and news attach the same way in every league. Your API key powers the data; the crosswalk powers the matching.")
+                .font(BrandTheme.body(14))
+                .foregroundStyle(BrandTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("API KEY")
+                    .font(BrandTheme.display(11, weight: .semibold))
+                    .tracking(1)
+                    .foregroundStyle(BrandTheme.muted)
+                HStack(spacing: 10) {
+                    Group {
+                        if isKeyVisible {
+                            TextField("Paste or scan API key", text: $apiKeyDraft)
+                        } else {
+                            SecureField("Paste or scan API key", text: $apiKeyDraft)
+                        }
+                    }
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(BrandTheme.body(16))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Button {
+                        isKeyVisible.toggle()
+                    } label: {
+                        Image(systemName: isKeyVisible ? "eye.slash" : "eye")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(BrandTheme.muted)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(isKeyVisible ? "Hide API key" : "Show API key")
+
+                    Button {
+                        showScanner = true
+                    } label: {
+                        Image(systemName: "camera.viewfinder")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(BrandTheme.ink)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Scan FantasyPros API key with camera")
+                }
+                .padding(.horizontal, BrandTheme.pageGutterTight)
+                .padding(.vertical, BrandTheme.space(14))
+                .background(BrandTheme.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                        .stroke(BrandTheme.hairline, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous))
+            }
+
+            Text("Paste a key, tap the eye to reveal it, or scan a QR / on-screen key. Request one at fantasypros.com/api-data — stored only in Keychain on this device.")
+                .font(BrandTheme.body(13))
+                .foregroundStyle(BrandTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("SCORING")
+                    .font(BrandTheme.display(11, weight: .semibold))
+                    .tracking(1)
+                    .foregroundStyle(BrandTheme.muted)
+                Picker("Scoring", selection: $scoring) {
+                    ForEach(FantasyProsScoring.allCases) { option in
+                        Text(option.displayName).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: scoring) { _, newValue in
+                    FantasyProsClient.scoring = newValue
+                }
+            }
+
+            Button {
+                let trimmed = apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                KeychainStore.set(trimmed.isEmpty ? nil : trimmed, for: .fantasyProsAPIKey)
+                FantasyProsClient.scoring = scoring
+                let ok = trimmed.isEmpty || trimmed.count >= 8
+                banner = trimmed.isEmpty ? "API key cleared." : (ok ? "FantasyPros key saved." : "Key looks too short.")
+                bannerError = !ok && !trimmed.isEmpty
+                UINotificationFeedbackGenerator().notificationOccurred(bannerError ? .error : .success)
+                if ok {
+                    Task { await FantasyProsIntelService.shared.reset() }
+                }
+            } label: {
+                Text("Save")
+            }
+            .buttonStyle(PrimaryButtonStyle())
+
+            Button {
+                Task { await testConnection() }
+            } label: {
+                Text(isTesting ? "Testing…" : "Test connection")
+            }
+            .buttonStyle(SecondaryButtonStyle())
+            .disabled(isTesting || apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).count < 8)
+
+            Text("After saving, open a player profile or pull to refresh Team — FantasyPros ranks/projections attach there.")
+                .font(BrandTheme.body(13))
+                .foregroundStyle(BrandTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .fullScreenCover(isPresented: $showScanner) {
+            APIKeyCameraScanner(
+                onScan: { value in
+                    apiKeyDraft = value
+                    isKeyVisible = true
+                    showScanner = false
+                    banner = "Scanned key — tap Save to store it in Keychain."
+                    bannerError = false
+                },
+                onCancel: {
+                    showScanner = false
+                }
+            )
+            .ignoresSafeArea()
+        }
+        .task {
+            await refreshStatusBanner()
+        }
+    }
+
+    private func refreshStatusBanner() async {
+        let status = await FantasyProsIntelService.shared.lastStatus
+        let ok = await FantasyProsIntelService.shared.hasData
+        let quota = await FantasyProsIntelService.shared.lastWasQuotaError
+        guard let status, !status.isEmpty else { return }
+        // Don't clobber an in-progress save/scan message unless it's an error/quota.
+        if banner == nil || quota || !ok {
+            banner = status
+            bannerError = !ok || quota
+        }
+    }
+
+    private func testConnection() async {
+        isTesting = true
+        defer { isTesting = false }
+        let trimmed = apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            KeychainStore.set(trimmed, for: .fantasyProsAPIKey)
+        }
+        await FantasyProsIntelService.shared.reset()
+        let season = appState.linkedFranchise?.season ?? Calendar.current.mflSeason
+        let week = max(1, appState.team?.week ?? appState.selectedWeek)
+        await FantasyProsIntelService.shared.ensureLoaded(season: season, week: week)
+        if let status = await FantasyProsIntelService.shared.lastStatus {
+            let ok = await FantasyProsIntelService.shared.hasData
+            let quota = await FantasyProsIntelService.shared.lastWasQuotaError
+            banner = status
+            bannerError = !ok || quota
+        } else {
+            banner = "Connected."
+            bannerError = false
+        }
+    }
+}
+
 struct TeamGoalsSettingsPage: View {
     @EnvironmentObject private var appState: AppState
     @State private var saved = false
 
     var body: some View {
         SettingsPageChrome(title: "Team goals") {
-            Text("Shared context for every agent desk.")
+            Text("Shared context and hard limits for every agent desk.")
                 .font(BrandTheme.body(14))
                 .foregroundStyle(BrandTheme.muted)
 
@@ -444,12 +645,47 @@ struct TeamGoalsSettingsPage: View {
                 }
             }
 
+            Text("LIMITS & GUARDRAILS")
+                .font(BrandTheme.display(11, weight: .semibold))
+                .tracking(1)
+                .foregroundStyle(BrandTheme.muted)
+                .padding(.top, 8)
+
+            HStack {
+                Text("Max FAAB bid")
+                    .font(BrandTheme.body(16))
+                    .foregroundStyle(BrandTheme.ink)
+                Spacer()
+                TextField("None", value: $appState.guardrails.maxFAABBid, format: .number)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: BrandTheme.space(100))
+                    .padding(BrandTheme.space(10))
+                    .background(
+                        RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                            .fill(BrandTheme.surface)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                                    .stroke(BrandTheme.hairline, lineWidth: 1)
+                            )
+                    )
+            }
+
+            Stepper(value: $appState.guardrails.stopHoursBeforeKickoff, in: 0...12, step: 1) {
+                Text("Stop \(Int(appState.guardrails.stopHoursBeforeKickoff))h before kickoff")
+            }
+
+            Text("Player lock lists (never bench / drop / trade) can be expanded next — IDs are stored in guardrails.")
+                .font(BrandTheme.body(13))
+                .foregroundStyle(BrandTheme.muted)
+
             Button {
                 appState.saveAgentCriteria()
+                appState.saveGuardrails()
                 saved = true
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             } label: {
-                Text(saved ? "Saved" : "Save goals")
+                Text(saved ? "Saved" : "Save")
             }
             .buttonStyle(PrimaryButtonStyle())
         }
@@ -622,76 +858,6 @@ struct DraftCriteriaPage: View {
                 saved = true
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             } label: { Text(saved ? "Saved" : "Save draft criteria") }
-            .buttonStyle(PrimaryButtonStyle())
-        }
-    }
-}
-
-struct DesksSettingsPage: View {
-    @EnvironmentObject private var appState: AppState
-    @State private var saved = false
-
-    var body: some View {
-        SettingsPageChrome(title: "Agent desks") {
-            Toggle("Lineup desk", isOn: $appState.guardrails.lineupDeskEnabled)
-                .tint(BrandTheme.accent)
-            Toggle("Waiver / FA desk", isOn: $appState.guardrails.waiverDeskEnabled)
-                .tint(BrandTheme.accent)
-            Toggle("Trade desk", isOn: $appState.guardrails.tradeDeskEnabled)
-                .tint(BrandTheme.accent)
-            Toggle("Draft desk", isOn: $appState.guardrails.draftDeskEnabled)
-                .tint(BrandTheme.accent)
-
-            Button {
-                appState.agentCriteria.lineup.enabled = appState.guardrails.lineupDeskEnabled
-                appState.agentCriteria.waiver.enabled = appState.guardrails.waiverDeskEnabled
-                appState.agentCriteria.trade.enabled = appState.guardrails.tradeDeskEnabled
-                appState.agentCriteria.draft.enabled = appState.guardrails.draftDeskEnabled
-                appState.saveGuardrails()
-                appState.saveAgentCriteria()
-                saved = true
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-            } label: { Text(saved ? "Saved" : "Save desks") }
-            .buttonStyle(PrimaryButtonStyle())
-        }
-    }
-}
-
-struct LimitsSettingsPage: View {
-    @EnvironmentObject private var appState: AppState
-    @State private var saved = false
-
-    var body: some View {
-        SettingsPageChrome(title: "Limits") {
-            HStack {
-                Text("Max FAAB bid")
-                Spacer()
-                TextField("None", value: $appState.guardrails.maxFAABBid, format: .number)
-                    .keyboardType(.decimalPad)
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: BrandTheme.space(100))
-                    .padding(BrandTheme.space(10))
-                    .background(
-                        RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
-                            .fill(BrandTheme.surface)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
-                                    .stroke(BrandTheme.hairline, lineWidth: 1)
-                            )
-                    )
-            }
-            Stepper(value: $appState.guardrails.stopHoursBeforeKickoff, in: 0...12, step: 1) {
-                Text("Stop \(Int(appState.guardrails.stopHoursBeforeKickoff))h before kickoff")
-            }
-            Text("Player lock lists (never bench / drop / trade) can be expanded next — IDs are stored in guardrails.")
-                .font(BrandTheme.body(13))
-                .foregroundStyle(BrandTheme.muted)
-
-            Button {
-                appState.saveGuardrails()
-                saved = true
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-            } label: { Text(saved ? "Saved" : "Save limits") }
             .buttonStyle(PrimaryButtonStyle())
         }
     }

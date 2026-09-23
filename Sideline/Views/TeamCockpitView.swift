@@ -4,10 +4,12 @@ struct TeamCockpitView: View {
     @EnvironmentObject private var appState: AppState
     @State private var selectedPlayer: RosterPlayer?
     @State private var showWeekSummary = false
+    /// Hide snackbar until the user leaves Team and comes back.
+    @State private var approvalsSnackDismissed = false
 
     var body: some View {
         NavigationStack {
-            ZStack {
+            ZStack(alignment: .bottom) {
                 SidelineBackground()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
@@ -34,10 +36,18 @@ struct TeamCockpitView: View {
                             emptyConnect
                         }
                     }
-                    .padding(.bottom, BrandTheme.space(24))
+                    .padding(.bottom, BrandTheme.space(88))
                 }
                 .refreshable { await appState.syncTeam() }
+
+                if showApprovalsSnackbar {
+                    approvalsSnackbar
+                        .padding(.horizontal, BrandTheme.pageGutter)
+                        .padding(.bottom, BrandTheme.space(12))
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
+            .animation(.spring(response: 0.35, dampingFraction: 0.86), value: showApprovalsSnackbar)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
@@ -62,6 +72,9 @@ struct TeamCockpitView: View {
                     await appState.syncTeam()
                 }
             }
+            .onAppear {
+                approvalsSnackDismissed = false
+            }
             .sheet(item: $selectedPlayer) { player in
                 PlayerDetailSheet(player: player)
                     .environmentObject(appState)
@@ -71,6 +84,56 @@ struct TeamCockpitView: View {
                     .environmentObject(appState)
             }
         }
+    }
+
+    private var showApprovalsSnackbar: Bool {
+        appState.pendingCount > 0 && !approvalsSnackDismissed
+    }
+
+    private var approvalsSnackbar: some View {
+        HStack(spacing: 12) {
+            Button {
+                appState.showApprovals = true
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "checklist")
+                        .font(.system(size: 15, weight: .semibold))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(appState.pendingCount == 1
+                              ? "1 proposal needs approval"
+                              : "\(appState.pendingCount) proposals need approval")
+                            .font(BrandTheme.body(14, weight: .semibold))
+                        Text("Tap to review")
+                            .font(BrandTheme.body(12))
+                            .foregroundStyle(Color.white.opacity(0.7))
+                    }
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(.white)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                withAnimation {
+                    approvalsSnackDismissed = true
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Color.white.opacity(0.7))
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(.horizontal, BrandTheme.space(14))
+        .padding(.vertical, BrandTheme.space(12))
+        .background(
+            RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                .fill(Color.black)
+        )
     }
 
     private var header: some View {

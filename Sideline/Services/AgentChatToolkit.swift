@@ -1,6 +1,6 @@
 import Foundation
 
-/// Live tools the follow-up chat agent can call (roster, FAs, rules, feasibility).
+/// Live tools the follow-up chat agent can call (roster, FAs, rules, feasibility, FantasyPros).
 enum AgentChatToolkit {
     struct ToolCall: Hashable {
         let id: String
@@ -54,7 +54,7 @@ enum AgentChatToolkit {
             "type": "function",
             "function": [
                 "name": "get_free_agents",
-                "description": "Look up free agents from MFL. Use when recommending pickups to fill a position hole or upgrade. Returns live scores/projections — not stale chat context.",
+                "description": "Look up free agents from MFL or Sleeper. Use when recommending pickups to fill a position hole or upgrade. Returns live scores/projections — not stale chat context.",
                 "parameters": [
                     "type": "object",
                     "properties": [
@@ -80,17 +80,104 @@ enum AgentChatToolkit {
             "type": "function",
             "function": [
                 "name": "research_players",
-                "description": "Fetch MFL research for specific player IDs: profile (age/ADP), recent news headlines, injury notes, ranks, and trending adds. REQUIRED before recommending who to drop or pick up — analyze these facts; do not just recite salary.",
+                "description": "Fetch host + FantasyPros research for specific player IDs: profile, news, injury, ranks, projections. REQUIRED before recommending who to drop or pick up.",
                 "parameters": [
                     "type": "object",
                     "properties": [
                         "player_ids": [
                             "type": "array",
                             "items": ["type": "string"],
-                            "description": "1–8 MFL player IDs to research (candidates to add and/or drop)."
+                            "description": "1–8 player IDs to research (candidates to add and/or drop)."
                         ]
                     ],
                     "required": ["player_ids"],
+                    "additionalProperties": false
+                ]
+            ]
+        ],
+        [
+            "type": "function",
+            "function": [
+                "name": "fantasypros_rankings",
+                "description": "FantasyPros expert consensus rankings (ECR). Use for sit/start, ROS value, and comparing players at a position. Same data FantasyPros MCP exposes.",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "position": [
+                            "type": "string",
+                            "description": "QB, RB, WR, TE, K, DST, or ALL. Default ALL."
+                        ],
+                        "scope": [
+                            "type": "string",
+                            "enum": ["weekly", "ros"],
+                            "description": "weekly = this week ECR; ros = rest-of-season. Default weekly."
+                        ],
+                        "limit": [
+                            "type": "integer",
+                            "description": "Max rows (1–40). Default 20."
+                        ]
+                    ],
+                    "additionalProperties": false
+                ]
+            ]
+        ],
+        [
+            "type": "function",
+            "function": [
+                "name": "fantasypros_projections",
+                "description": "FantasyPros weekly fantasy-point projections by position. Use for this-week start/sit math.",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "position": [
+                            "type": "string",
+                            "description": "QB, RB, WR, TE, K, DST, or ALL. Default ALL."
+                        ],
+                        "limit": [
+                            "type": "integer",
+                            "description": "Max rows (1–40). Default 20."
+                        ]
+                    ],
+                    "additionalProperties": false
+                ]
+            ]
+        ],
+        [
+            "type": "function",
+            "function": [
+                "name": "fantasypros_news",
+                "description": "FantasyPros NFL news wire. Optionally filter to one player by name.",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "player_name": [
+                            "type": "string",
+                            "description": "Optional player name filter, e.g. \"Bijan Robinson\"."
+                        ],
+                        "limit": [
+                            "type": "integer",
+                            "description": "Max items (1–15). Default 8."
+                        ]
+                    ],
+                    "additionalProperties": false
+                ]
+            ]
+        ],
+        [
+            "type": "function",
+            "function": [
+                "name": "fantasypros_research",
+                "description": "Look up FantasyPros weekly ECR, ROS rank, projection, and news by player display names (works for free agents and rostered players).",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "player_names": [
+                            "type": "array",
+                            "items": ["type": "string"],
+                            "description": "1–10 player names to research."
+                        ]
+                    ],
+                    "required": ["player_names"],
                     "additionalProperties": false
                 ]
             ]
@@ -98,19 +185,33 @@ enum AgentChatToolkit {
     ]
 
     static func systemPrompt(agentName: String, proposal: ActionProposal) -> String {
-        """
+        let fpHint = FantasyProsClient.hasAPIKey
+            ? """
+              FantasyPros tools are available (same data as FantasyPros MCP):
+              - fantasypros_rankings / fantasypros_projections for position boards
+              - fantasypros_news for injury/role notes
+              - fantasypros_research by player name for FA + roster comparisons
+              Prefer FantasyPros ranks/projections over guessing when debating sit/start or pickups.
+              """
+            : """
+              FantasyPros is not configured — tell the user to add an API key in Settings → FantasyPros if they want expert ranks/projections in chat.
+              """
+        return """
         You are \(agentName) in Sideline, in a follow-up chat about a prior proposal.
         Answer clearly and confidently when tool data supports it. If data is thin, say what you're uncertain about.
 
-        You have tools. USE THEM when the user asks about drops, pickups, lineup holes, free agents, or current roster — do not rely only on memory.
+        You have tools. USE THEM when the user asks about drops, pickups, lineup holes, free agents, rankings, or current roster — do not rely only on memory.
         - get_roster before suggesting who to drop or sit/start
         - get_free_agents when recommending pickups (filter by position when relevant)
         - research_players on the shortlist of candidates BEFORE your final recommendation
+        - fantasypros_rankings / fantasypros_projections / fantasypros_research for expert consensus and projections
         - get_league_rules / get_lineup_feasibility when discussing whether a lineup is legal
 
+        \(fpHint)
+
         For drop / pickup recommendations:
-        - Call research_players on the players you are comparing (adds and drop candidates).
-        - Analyze MFL research: role/news, age/ADP, injury, ranks, trending adds, rest-of-season outlook — not salary alone.
+        - Call research_players and/or fantasypros_research on the players you are comparing.
+        - Analyze role/news, ranks, injury, and projections — not salary alone.
         - Salary/cap is one factor among many; never make salary the whole rationale.
         - Prefer concrete player names + IDs. Plain text only (no JSON in the final reply).
         - Keep answers practical and short unless the user asks for depth.
@@ -147,6 +248,14 @@ enum AgentChatToolkit {
             return await freeAgentsText(appState: appState, position: position, sort: sort, limit: limit)
         case "research_players":
             return await researchPlayersText(appState: appState, args: args)
+        case "fantasypros_rankings":
+            return await fantasyProsRankingsText(appState: appState, args: args)
+        case "fantasypros_projections":
+            return await fantasyProsProjectionsText(appState: appState, args: args)
+        case "fantasypros_news":
+            return await fantasyProsNewsText(appState: appState, args: args)
+        case "fantasypros_research":
+            return await fantasyProsResearchText(appState: appState, args: args)
         default:
             return "Unknown tool: \(name)"
         }
@@ -156,7 +265,6 @@ enum AgentChatToolkit {
 
     @MainActor
     private static func rosterText(appState: AppState) async -> String {
-        // Soft refresh — keep last good roster if MFL hiccups mid-chat.
         let previous = appState.team
         if appState.linkedFranchise != nil {
             await appState.syncTeam(week: appState.selectedWeek)
@@ -265,6 +373,8 @@ enum AgentChatToolkit {
             chunks.append(await MFLPlayerResearchService.summarize(playerIds: ids, linked: linked))
         }
         let rosterHits = (appState.team?.allRostered ?? []).filter { ids.contains($0.playerId) }
+        var nameHits: [String] = rosterHits.map(\.name)
+
         if !rosterHits.isEmpty {
             chunks.append(await SleeperPlayerCatalog.shared.contextLines(for: rosterHits, limit: 12))
         } else if linked.isSleeper {
@@ -275,11 +385,95 @@ enum AgentChatToolkit {
                     if let inj = p.injuryStatus { bits.append("injury=\(inj)") }
                     if let st = p.status { bits.append("status=\(st)") }
                     lines.append("- " + bits.joined(separator: " · "))
+                    nameHits.append(p.fullName)
                 }
             }
             chunks.append(lines.joined(separator: "\n"))
         }
+
+        if FantasyProsClient.hasAPIKey {
+            await FantasyProsIntelService.shared.ensureLoaded(
+                season: linked.season,
+                week: appState.team?.week ?? appState.selectedWeek
+            )
+            if !rosterHits.isEmpty {
+                chunks.append(await FantasyProsIntelService.shared.contextLines(for: rosterHits, limit: 12))
+            }
+            let missing = ids.filter { id in !(appState.team?.allRostered ?? []).contains { $0.playerId == id } }
+            if !missing.isEmpty, nameHits.count < ids.count {
+                if let fas = try? await appState.fetchFreeAgents(sort: "ytd", limit: 40, position: nil) {
+                    for fa in fas where missing.contains(fa.playerId) {
+                        nameHits.append(fa.name)
+                    }
+                }
+            }
+            if !nameHits.isEmpty {
+                chunks.append(await FantasyProsIntelService.shared.researchByNames(nameHits, limitPerPlayer: 2))
+            }
+        }
         return chunks.joined(separator: "\n\n")
+    }
+
+    @MainActor
+    private static func ensureFantasyProsLoaded(appState: AppState) async -> String? {
+        guard FantasyProsClient.hasAPIKey else {
+            return "FantasyPros not configured. Add an API key in Settings → FantasyPros."
+        }
+        let season = appState.linkedFranchise?.season ?? Calendar.current.mflSeason
+        let week = max(1, appState.team?.week ?? appState.selectedWeek)
+        await FantasyProsIntelService.shared.ensureLoaded(
+            season: season,
+            week: week,
+            hasLiveGames: DataCache.hasLiveGames(in: appState.team)
+        )
+        return nil
+    }
+
+    @MainActor
+    private static func fantasyProsRankingsText(appState: AppState, args: [String: Any]) async -> String {
+        if let err = await ensureFantasyProsLoaded(appState: appState) { return err }
+        let position = (args["position"] as? String) ?? "ALL"
+        let scope = (args["scope"] as? String) ?? "weekly"
+        let limit = min(40, max(1, (args["limit"] as? Int) ?? intValue(args["limit"]) ?? 20))
+        return await FantasyProsIntelService.shared.rankingsToolText(
+            position: position, scope: scope, limit: limit
+        )
+    }
+
+    @MainActor
+    private static func fantasyProsProjectionsText(appState: AppState, args: [String: Any]) async -> String {
+        if let err = await ensureFantasyProsLoaded(appState: appState) { return err }
+        let position = (args["position"] as? String) ?? "ALL"
+        let limit = min(40, max(1, (args["limit"] as? Int) ?? intValue(args["limit"]) ?? 20))
+        return await FantasyProsIntelService.shared.projectionsToolText(position: position, limit: limit)
+    }
+
+    @MainActor
+    private static func fantasyProsNewsText(appState: AppState, args: [String: Any]) async -> String {
+        if let err = await ensureFantasyProsLoaded(appState: appState) { return err }
+        let name = args["player_name"] as? String
+        let limit = min(15, max(1, (args["limit"] as? Int) ?? intValue(args["limit"]) ?? 8))
+        return await FantasyProsIntelService.shared.newsToolText(playerName: name, limit: limit)
+    }
+
+    @MainActor
+    private static func fantasyProsResearchText(appState: AppState, args: [String: Any]) async -> String {
+        if let err = await ensureFantasyProsLoaded(appState: appState) { return err }
+        var names: [String] = []
+        if let arr = args["player_names"] as? [String] {
+            names = arr
+        } else if let arr = args["player_names"] as? [Any] {
+            names = arr.compactMap { $0 as? String }
+        } else if let s = args["player_names"] as? String {
+            names = s.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        } else if let single = args["player_name"] as? String {
+            names = [single]
+        }
+        names = names.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !names.isEmpty else {
+            return "fantasypros_research requires player_names (array)."
+        }
+        return await FantasyProsIntelService.shared.researchByNames(names)
     }
 
     private static func parseArgs(_ json: String) -> [String: Any] {

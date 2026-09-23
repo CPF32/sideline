@@ -35,7 +35,6 @@ actor MFLClient {
 
     private let session: URLSession
     private var cookie: String?
-    private var cache: [String: (date: Date, data: Data)] = [:]
     private let minRequestSpacing: Duration = .milliseconds(1100)
     private var lastRequestAt: ContinuousClock.Instant?
 
@@ -236,9 +235,10 @@ actor MFLClient {
 
     private func get(_ url: URL, cacheTTL: TimeInterval) async throws -> Data {
         ensureCookieLoaded()
-        let key = url.absoluteString
-        if cacheTTL > 0, let hit = cache[key], Date().timeIntervalSince(hit.date) < cacheTTL {
-            return hit.data
+        let key = "mfl:\(url.absoluteString)"
+        if let policy = Self.cachePolicy(for: cacheTTL),
+           let hit = await DataCache.shared.get(key, policy: policy) {
+            return hit
         }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -248,6 +248,14 @@ actor MFLClient {
         }
         let (data, _) = try await perform(request, useCache: cacheTTL > 0, cacheTTL: cacheTTL, cacheKey: key)
         return data
+    }
+
+    private static func cachePolicy(for ttl: TimeInterval) -> DataCache.Policy? {
+        if ttl <= 0 { return nil }
+        if ttl <= 90 { return .live }
+        if ttl <= 7_200 { return .standard }
+        if ttl <= 200_000 { return .day }
+        return .week
     }
 
     /// Global (non-league) exports — e.g. `playerProfile`, which only needs `P=` and no `L`.
@@ -305,7 +313,7 @@ actor MFLClient {
                     throw MFLError.http(http.statusCode, body)
                 }
                 if useCache, cacheTTL > 0, let cacheKey {
-                    cache[cacheKey] = (Date(), data)
+                    await DataCache.shared.set(data, for: cacheKey)
                 }
                 return (data, response)
             } catch let error as MFLError {

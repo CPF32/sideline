@@ -7,6 +7,7 @@ enum KeychainStore {
         case mflUsername = "sideline.mfl.username"
         case sleeperUsername = "sideline.sleeper.username"
         case sleeperUserId = "sideline.sleeper.userId"
+        case fantasyProsAPIKey = "sideline.fantasypros.apiKey"
         case llmOpenAI = "sideline.llm.openai"
         case llmAnthropic = "sideline.llm.anthropic"
         case llmGoogle = "sideline.llm.google"

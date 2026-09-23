@@ -1,0 +1,18 @@
+name = "sideline-live"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "16dc11c278c048b28b3d743c9bc41320"
+preview_id = "8eab90b12a2d48438955ec8ccd767b8a"
+
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+APNS_BUNDLE_ID = "com.cpf32.sideline"
+APNS_TEAM_ID = "UV23JAL4TD"
+APNS_KEY_ID = "PLVG26662H"
+# APNs host is chosen automatically per device (sandbox ↔ production).

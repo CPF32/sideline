@@ -3,7 +3,6 @@ import SwiftUI
 enum MainTab: Hashable {
     case team
     case league
-    case approvals
     case agents
     case settings
 }
@@ -21,11 +20,6 @@ struct MainTabView: View {
                 .tabItem { Label("League", systemImage: "sportscourt") }
                 .tag(MainTab.league)
 
-            ApprovalsView()
-                .badge(appState.pendingCount > 0 ? "\(appState.pendingCount)" : nil)
-                .tabItem { Label("Approvals", systemImage: "checklist") }
-                .tag(MainTab.approvals)
-
             AgentsSheet()
                 .tabItem { Label("Agents", systemImage: "brain.head.profile") }
                 .tag(MainTab.agents)
@@ -42,6 +36,12 @@ struct MainTabView: View {
         .sheet(isPresented: $appState.showConnect) {
             ConnectLeagueHubView()
                 .environmentObject(appState)
+        }
+        .sheet(isPresented: $appState.showApprovals) {
+            ApprovalsSheet()
+                .environmentObject(appState)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
         .alert("Error", isPresented: Binding(
             get: { appState.errorMessage != nil },

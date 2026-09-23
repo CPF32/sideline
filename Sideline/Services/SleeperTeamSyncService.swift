@@ -9,14 +9,22 @@ enum SleeperTeamSyncService {
 
         async let rostersData = client.rosters(leagueId: linked.leagueId)
         async let usersData = client.users(leagueId: linked.leagueId)
-        async let matchupsData = try? await client.matchups(leagueId: linked.leagueId, week: currentWeek)
         // Public MFL nflSchedule — no MFL login required; works for Sleeper-only users.
         async let teamGamesTask = NFLScheduleService.teamGames(season: state.season, week: currentWeek)
+        async let projectionsData = try? await client.weeklyProjections(season: state.season, week: currentWeek)
+        async let scoringKeyTask = client.leagueScoringKey(leagueId: linked.leagueId)
 
         let rostersRaw = try await rostersData
         let usersRaw = try await usersData
-        let matchupsRaw = await matchupsData
         let teamGames = await teamGamesTask
+        let hasLiveGames = teamGames.values.contains { $0.lockState == "started" }
+        let matchupsRaw = try? await client.matchups(
+            leagueId: linked.leagueId,
+            week: currentWeek,
+            hasLiveGames: hasLiveGames
+        )
+        let projectionsRaw = await projectionsData
+        let scoringKey = await scoringKeyTask
         let names = parseUserNames(usersRaw)
         let rosterId = Int(linked.franchiseId) ?? 0
         guard let myRoster = parseRosters(rostersRaw).first(where: { $0.rosterId == rosterId }) else {
@@ -24,6 +32,7 @@ enum SleeperTeamSyncService {
         }
 
         let pointsMap = matchupPlayerPoints(matchupsRaw, rosterId: rosterId)
+        let projMap = parseProjectionMap(projectionsRaw, scoringKey: scoringKey)
         let starterIds = myRoster.starters
         let reserveIds = Set(myRoster.reserve)
         let taxiIds = Set(myRoster.taxi)
@@ -57,7 +66,7 @@ enum SleeperTeamSyncService {
                 position: position,
                 team: team,
                 status: status,
-                projectedPoints: nil,
+                projectedPoints: projMap[pid],
                 actualPoints: pts,
                 seasonPoints: nil,
                 lastWeekPoints: nil,
@@ -79,6 +88,12 @@ enum SleeperTeamSyncService {
         bench = NFLScheduleService.annotate(bench, games: teamGames)
         ir = NFLScheduleService.annotate(ir, games: teamGames)
         taxi = NFLScheduleService.annotate(taxi, games: teamGames)
+
+        // Don't keep matchup zeros as "actual" for players who haven't kicked off.
+        starters = clearActualIfNotLive(starters)
+        bench = clearActualIfNotLive(bench)
+        ir = clearActualIfNotLive(ir)
+        taxi = clearActualIfNotLive(taxi)
 
         let myName = names[linked.sleeperUserId]
             ?? names.values.first { _ in true }
@@ -296,11 +311,13 @@ enum SleeperTeamSyncService {
             let rosterId = (row["roster_id"] as? Int)
                 ?? Int(row["roster_id"] as? String ?? "")
             guard let rosterId else { return nil }
-            let owner = (row["owner_id"] as? String) ?? ""
-            let players = (row["players"] as? [String]) ?? []
-            let starters = (row["starters"] as? [String]) ?? []
-            let reserve = (row["reserve"] as? [String]) ?? []
-            let taxi = (row["taxi"] as? [String]) ?? []
+            let owner = (row["owner_id"] as? String)
+                ?? (row["owner_id"] as? Int).map(String.init)
+                ?? ""
+            let players = stringIds(row["players"])
+            let starters = stringIds(row["starters"])
+            let reserve = stringIds(row["reserve"])
+            let taxi = stringIds(row["taxi"])
             let settings = (row["settings"] as? [String: Any]) ?? [:]
             return SleeperRoster(
                 rosterId: rosterId,
@@ -312,6 +329,32 @@ enum SleeperTeamSyncService {
                 settings: settings
             )
         }
+    }
+
+    private static func stringIds(_ any: Any?) -> [String] {
+        if let arr = any as? [String] {
+            return arr.filter { !$0.isEmpty && $0 != "0" }
+        }
+        if let arr = any as? [Int] {
+            return arr.map(String.init).filter { $0 != "0" }
+        }
+        if let arr = any as? [Any] {
+            return arr.compactMap { value -> String? in
+                if let s = value as? String {
+                    let t = s.trimmingCharacters(in: .whitespaces)
+                    return (t.isEmpty || t == "0") ? nil : t
+                }
+                if let i = value as? Int {
+                    return i == 0 ? nil : String(i)
+                }
+                if let n = value as? NSNumber {
+                    let i = n.intValue
+                    return i == 0 ? nil : String(i)
+                }
+                return nil
+            }
+        }
+        return []
     }
 
     private static func parseMatchups(_ data: Data) -> [SleeperMatchup] {
@@ -344,6 +387,62 @@ enum SleeperTeamSyncService {
     private static func matchupPlayerPoints(_ data: Data?, rosterId: Int) -> [String: Double] {
         guard let data else { return [:] }
         return parseMatchups(data).first(where: { $0.rosterId == rosterId })?.playersPoints ?? [:]
+    }
+
+    /// Drop matchup point stubs for players whose NFL game hasn't started (Sleeper often sends 0).
+    private static func clearActualIfNotLive(_ players: [RosterPlayer]) -> [RosterPlayer] {
+        players.map { player in
+            let lock = player.gameLockState ?? "upcoming"
+            guard lock == "started" || lock == "final" else {
+                var p = player
+                p.actualPoints = nil
+                return p
+            }
+            return player
+        }
+    }
+
+    private static func parseProjectionMap(_ data: Data?, scoringKey: String) -> [String: Double] {
+        guard let data,
+              let root = try? JSONSerialization.jsonObject(with: data)
+        else { return [:] }
+
+        let rows: [[String: Any]]
+        if let arr = root as? [[String: Any]] {
+            rows = arr
+        } else if let dict = root as? [String: Any] {
+            // Some responses are { playerId: { stats: ... } }
+            rows = dict.compactMap { key, value -> [String: Any]? in
+                guard var row = value as? [String: Any] else { return nil }
+                if row["player_id"] == nil { row["player_id"] = key }
+                return row
+            }
+        } else {
+            return [:]
+        }
+
+        var map: [String: Double] = [:]
+        for row in rows {
+            let pid = (row["player_id"] as? String)
+                ?? (row["player"] as? [String: Any]).flatMap { $0["player_id"] as? String }
+                ?? (row["player_id"] as? Int).map(String.init)
+            guard let pid, !pid.isEmpty else { continue }
+            let stats = (row["stats"] as? [String: Any]) ?? row
+            let pts = doubleValue(stats[scoringKey])
+                ?? doubleValue(stats["pts_ppr"])
+                ?? doubleValue(stats["pts_half_ppr"])
+                ?? doubleValue(stats["pts_std"])
+            guard let pts else { continue }
+            map[pid] = pts
+        }
+        return map
+    }
+
+    private static func doubleValue(_ any: Any?) -> Double? {
+        if let d = any as? Double { return d }
+        if let i = any as? Int { return Double(i) }
+        if let s = any as? String { return Double(s) }
+        return nil
     }
 
     private static func parseUserNames(_ data: Data) -> [String: String] {

@@ -64,21 +64,9 @@ enum AgentOrchestrator {
         case .gm:
             report("GM review — coordinating desks")
             var all: [AgentProposalDraft] = []
-            if criteria.lineup.enabled && guardrails.lineupDeskEnabled {
-                all += try await runSpecialist(.lineup, team: team, freeAgentsSample: freeAgentsSample, guardrails: guardrails, criteria: criteria, llm: llm, leagueIntel: leagueIntel, playerResearch: playerResearch, onProgress: onProgress)
-            } else {
-                report("Skipping Lineup Desk (disabled)")
-            }
-            if criteria.waiver.enabled && guardrails.waiverDeskEnabled {
-                all += try await runSpecialist(.waiver, team: team, freeAgentsSample: freeAgentsSample, guardrails: guardrails, criteria: criteria, llm: llm, leagueIntel: leagueIntel, playerResearch: playerResearch, onProgress: onProgress)
-            } else {
-                report("Skipping Waiver Desk (disabled)")
-            }
-            if criteria.trade.enabled && guardrails.tradeDeskEnabled {
-                all += try await runSpecialist(.trade, team: team, freeAgentsSample: freeAgentsSample, guardrails: guardrails, criteria: criteria, llm: llm, leagueIntel: leagueIntel, playerResearch: playerResearch, onProgress: onProgress)
-            } else {
-                report("Skipping Trade Desk (disabled)")
-            }
+            all += try await runSpecialist(.lineup, team: team, freeAgentsSample: freeAgentsSample, guardrails: guardrails, criteria: criteria, llm: llm, leagueIntel: leagueIntel, playerResearch: playerResearch, onProgress: onProgress)
+            all += try await runSpecialist(.waiver, team: team, freeAgentsSample: freeAgentsSample, guardrails: guardrails, criteria: criteria, llm: llm, leagueIntel: leagueIntel, playerResearch: playerResearch, onProgress: onProgress)
+            all += try await runSpecialist(.trade, team: team, freeAgentsSample: freeAgentsSample, guardrails: guardrails, criteria: criteria, llm: llm, leagueIntel: leagueIntel, playerResearch: playerResearch, onProgress: onProgress)
             report("Merging \(all.count) draft proposal(s)")
             return dedupe(all)
         default:
@@ -624,8 +612,13 @@ enum TeamContextBuilder {
 enum GuardrailEngine {
     static func load() -> GuardrailSettings {
         guard let data = UserDefaults.standard.data(forKey: GuardrailSettings.storageKey),
-              let settings = try? JSONDecoder().decode(GuardrailSettings.self, from: data)
+              var settings = try? JSONDecoder().decode(GuardrailSettings.self, from: data)
         else { return GuardrailSettings() }
+        // Desks are always available — ignore any previously saved toggles.
+        settings.lineupDeskEnabled = true
+        settings.waiverDeskEnabled = true
+        settings.tradeDeskEnabled = true
+        settings.draftDeskEnabled = true
         return settings
     }
 
@@ -638,7 +631,6 @@ enum GuardrailEngine {
     static func allows(draft: AgentProposalDraft, settings: GuardrailSettings, team: TeamSnapshot) -> Bool {
         switch draft.kind {
         case .lineup:
-            guard settings.lineupDeskEnabled else { return false }
             guard let payload = try? JSONDecoder().decode(LineupPayload.self, from: Data(draft.payloadJSON.utf8)) else { return false }
             // Advisory: cannot auto-set — allow empty starters when explicitly flagged.
             if payload.canAutoSet == false {
@@ -673,7 +665,6 @@ enum GuardrailEngine {
             }
             return true
         case .waiver:
-            guard settings.waiverDeskEnabled else { return false }
             guard let payload = try? JSONDecoder().decode(WaiverPayload.self, from: Data(draft.payloadJSON.utf8)) else { return false }
             // Require a concrete add — empty waiver proposals are not useful.
             guard let add = payload.addPlayerId, !add.isEmpty else { return false }
@@ -681,14 +672,13 @@ enum GuardrailEngine {
             if let bid = payload.bid, let max = settings.maxFAABBid, bid > max { return false }
             return true
         case .trade:
-            guard settings.tradeDeskEnabled else { return false }
             guard let payload = try? JSONDecoder().decode(TradePayload.self, from: Data(draft.payloadJSON.utf8)) else { return false }
             if payload.givePlayerIds.contains(where: { settings.neverTradePlayerIds.contains($0) }) { return false }
             let hasPlayers = !payload.givePlayerIds.isEmpty || !payload.receivePlayerIds.isEmpty
             let hasPicks = !(payload.givePickIds ?? []).isEmpty || !(payload.receivePickIds ?? []).isEmpty
             return hasPlayers || hasPicks
         case .draft:
-            return settings.draftDeskEnabled
+            return true
         }
     }
 }

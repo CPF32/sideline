@@ -21,8 +21,14 @@ final class LinkedFranchise {
         set { providerRaw = newValue.rawValue }
     }
 
-    var isSleeper: Bool { provider == .sleeper }
-    var isMFL: Bool { provider == .mfl }
+    var isSleeper: Bool {
+        if provider == .sleeper { return true }
+        // Fallbacks if SwiftData migration left providerRaw defaulted.
+        if id.hasPrefix("sleeper|") { return true }
+        if host.localizedCaseInsensitiveContains("sleeper") { return true }
+        return false
+    }
+    var isMFL: Bool { !isSleeper }
 
     init(
         leagueId: String,
@@ -107,18 +113,22 @@ struct RosterPlayer: Identifiable, Hashable, Codable {
     var contractYear: Int? = nil
 
     /// Prefer live/final points once the NFL game has started; otherwise projection.
+    /// Never show matchup zeros / stale actuals as "live" for upcoming / unknown / bye.
     var displayWeekPoints: (value: Double, isLive: Bool)? {
         let lock = gameLockState ?? "upcoming"
-        if lock == "started" || lock == "final", let actual = actualPoints {
-            return (actual, true)
+        switch lock {
+        case "started":
+            if let actual = actualPoints { return (actual, true) }
+            if let proj = projectedPoints { return (proj, false) }
+            return nil
+        case "final":
+            if let actual = actualPoints { return (actual, false) }
+            return nil
+        default:
+            // upcoming | bye | unknown — projection only; omit if unavailable
+            if let proj = projectedPoints { return (proj, false) }
+            return nil
         }
-        if let proj = projectedPoints {
-            return (proj, false)
-        }
-        if let actual = actualPoints, lock != "bye", lock != "upcoming" {
-            return (actual, true)
-        }
-        return nil
     }
 
     /// Compact game-status label for roster rows (clock instead of bare STARTED).

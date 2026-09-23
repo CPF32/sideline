@@ -85,8 +85,12 @@ enum ContendMode: String, Codable, CaseIterable, Identifiable {
 enum AgentCriteriaStore {
     static func load() -> AgentCriteriaBundle {
         guard let data = UserDefaults.standard.data(forKey: AgentCriteriaBundle.storageKey),
-              let value = try? JSONDecoder().decode(AgentCriteriaBundle.self, from: data)
+              var value = try? JSONDecoder().decode(AgentCriteriaBundle.self, from: data)
         else { return AgentCriteriaBundle() }
+        value.lineup.enabled = true
+        value.waiver.enabled = true
+        value.trade.enabled = true
+        value.draft.enabled = true
         return value
     }
 

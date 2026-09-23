@@ -146,7 +146,7 @@ enum MFLPlayerResearchService {
         var out: [String: PlayerDetail] = [:]
         for id in ids {
             let p = profiles[id] ?? profiles[MFLNameResolver.normalizePlayerId(id)]
-            let detail = PlayerDetail(
+            var detail = PlayerDetail(
                 playerId: id,
                 name: p?.name,
                 age: p?.age,
@@ -159,6 +159,7 @@ enum MFLPlayerResearchService {
                 injury: injuries[id] ?? injuries[MFLNameResolver.normalizePlayerId(id)],
                 newsHeadlines: p?.newsHeadlines ?? []
             )
+            detail.newsItems = p?.newsItems ?? []
             out[id] = detail
             out[MFLNameResolver.normalizePlayerId(id)] = detail
         }
@@ -175,6 +176,7 @@ enum MFLPlayerResearchService {
         var weight: String?
         var adp: String?
         var newsHeadlines: [String] = []
+        var newsItems: [PlayerNewsItem] = []
     }
 
     private static func parseProfiles(_ data: Data) -> [String: Profile] {
@@ -248,16 +250,67 @@ enum MFLPlayerResearchService {
         // Rare: some seasons embed short notes under news/article — not a full wire.
         let newsRoot = (row["news"] as? [String: Any]) ?? (player["news"] as? [String: Any])
         let articlesAny = newsRoot?["article"]
-        var headlines: [String] = []
+        var items: [PlayerNewsItem] = []
+        let articleRows: [[String: Any]]
         if let arr = articlesAny as? [[String: Any]] {
-            headlines = arr.compactMap { ($0["headline"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-        } else if let one = articlesAny as? [String: Any],
-                  let h = one["headline"] as? String {
-            headlines = [h]
+            articleRows = arr
+        } else if let one = articlesAny as? [String: Any] {
+            articleRows = [one]
+        } else {
+            articleRows = []
         }
-        profile.newsHeadlines = headlines
+        for (idx, article) in articleRows.enumerated() {
+            let headline = (article["headline"] as? String)
+                ?? (article["title"] as? String)
+                ?? ""
+            let body = (article["article"] as? String)
+                ?? (article["body"] as? String)
+                ?? (article["text"] as? String)
+                ?? (article["blurb"] as? String)
+                ?? ""
+            let linkRaw = (article["url"] as? String)
+                ?? (article["link"] as? String)
+                ?? (article["href"] as? String)
+            let trimmedHeadline = headline.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedBody = body
+                .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedHeadline.isEmpty || !trimmedBody.isEmpty else { continue }
+            var url: URL?
+            if let linkRaw, let u = URL(string: linkRaw) {
+                url = u
+            } else {
+                url = firstURL(in: trimmedBody) ?? firstURL(in: trimmedHeadline)
+            }
+            let displayTitle = trimmedHeadline.isEmpty ? String(trimmedBody.prefix(80)) : trimmedHeadline
+            let displayBody = trimmedBody.isEmpty ? trimmedHeadline : trimmedBody
+            items.append(
+                PlayerNewsItem(
+                    id: "mfl-\(id)-\(idx)",
+                    title: displayTitle,
+                    body: displayBody,
+                    linkURL: url,
+                    source: "MFL"
+                )
+            )
+        }
+        profile.newsItems = items
+        profile.newsHeadlines = items.map { item in
+            item.body.isEmpty || item.body == item.title
+                ? item.title
+                : "\(item.title) — \(item.body)"
+        }
         return (id, profile)
+    }
+
+    private static func firstURL(in text: String) -> URL? {
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+            return nil
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = detector.firstMatch(in: text, options: [], range: range),
+              let url = match.url else { return nil }
+        return url
     }
 
     private static func parseRankMap(_ data: Data) -> [String: String] {

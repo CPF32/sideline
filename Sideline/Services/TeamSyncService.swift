@@ -28,7 +28,7 @@ enum TeamSyncService {
 
         async let rostersData = client.exportJSON(
             host: host, season: season, type: "rosters", leagueId: leagueId,
-            extra: ["FRANCHISE": franchiseId], cacheTTL: 60
+            extra: ["FRANCHISE": franchiseId], cacheTTL: 3_600
         )
         async let playersData = client.exportJSON(
             host: host, season: season, type: "players", leagueId: leagueId,
@@ -36,25 +36,25 @@ enum TeamSyncService {
         )
         async let projectionsData = try? await client.exportJSON(
             host: host, season: season, type: "projectedScores", leagueId: leagueId,
-            extra: ["W": String(currentWeek)], cacheTTL: 300
+            extra: ["W": String(currentWeek)], cacheTTL: 3_600
         )
         async let scheduleData = try? await client.exportJSON(
             host: host, season: season, type: "schedule", leagueId: leagueId,
-            extra: ["W": String(currentWeek)], cacheTTL: 300
+            extra: ["W": String(currentWeek)], cacheTTL: 3_600
         )
         async let standingsData = try? await client.exportJSON(
             host: host, season: season, type: "leagueStandings", leagueId: leagueId,
-            cacheTTL: 300
+            cacheTTL: 3_600
         )
         // Week-specific starters/bench — `rosters` alone is last-submitted lineup (often prior week).
         async let weeklyResultsData = try? await client.exportJSON(
             host: host, season: season, type: "weeklyResults", leagueId: leagueId,
-            extra: ["W": String(currentWeek)], cacheTTL: 60
+            extra: ["W": String(currentWeek)], cacheTTL: 3_600
         )
         // Live totals + per-player scores (DETAILS=1 includes bench).
         async let liveScoringData = try? await client.exportJSON(
             host: host, season: season, type: "liveScoring", leagueId: leagueId,
-            extra: ["W": String(currentWeek), "DETAILS": "1"], cacheTTL: 30
+            extra: ["W": String(currentWeek), "DETAILS": "1"], cacheTTL: 60
         )
         // Final / prelim week scores — fills gaps once games post.
         async let playerScoresData = try? await client.exportJSON(
