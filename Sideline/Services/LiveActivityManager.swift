@@ -62,7 +62,10 @@ enum LiveActivityManager {
         Task {
             if let existing = Activity<MatchupLiveAttributes>.activities.first {
                 await existing.update(
-                    ActivityContent(state: state, staleDate: Date().addingTimeInterval(180))
+                    ActivityContent(
+                        state: keepingSyncTimer(state, from: existing),
+                        staleDate: Date().addingTimeInterval(180)
+                    )
                 )
                 if usePush {
                     observePushToken(activity: existing, snapshot: snapshot, linked: linked)
@@ -153,8 +156,26 @@ enum LiveActivityManager {
 
     private static func updateExisting(state: MatchupLiveAttributes.ContentState) async {
         for activity in Activity<MatchupLiveAttributes>.activities {
-            await activity.update(ActivityContent(state: state, staleDate: Date().addingTimeInterval(120)))
+            await activity.update(
+                ActivityContent(
+                    state: keepingSyncTimer(state, from: activity),
+                    staleDate: Date().addingTimeInterval(120)
+                )
+            )
         }
+    }
+
+    /// Local (foreground) updates don't know the backend schedule, so carry over the
+    /// last pushed next-sync time to keep the countdown running.
+    private static func keepingSyncTimer(
+        _ state: MatchupLiveAttributes.ContentState,
+        from activity: Activity<MatchupLiveAttributes>
+    ) -> MatchupLiveAttributes.ContentState {
+        var state = state
+        if let next = activity.content.state.nextSyncAt, next > Date().timeIntervalSince1970 {
+            state.nextSyncAt = next
+        }
+        return state
     }
 
     private static func contentState(

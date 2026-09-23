@@ -8,6 +8,8 @@ export type ContentState = {
   playerLines: string[];
   /** Unix seconds — keep as number for APNs Codable interop. */
   lastUpdated: number;
+  /** Unix seconds of the next scheduled backend sync (drives the countdown). */
+  nextSyncAt?: number;
 };
 
 export type Provider = "mfl" | "sleeper";
@@ -37,7 +39,6 @@ export type LiveSession = {
   apnsEnvironment?: ApnsEnvironment;
   createdAt: number;
   updatedAt: number;
-  lastContent?: ContentState;
 };
 
 export type RegisterBody = {

@@ -12,14 +12,23 @@ iOS app                     Cloudflare Worker                 Hosts
 Start Live Activity
   pushType: .token
 Observe pushToken  ──POST──► /v1/live-activity/register
-                             store session in KV
-Cron (* * * * *)  ─────────► fetch MFL liveScoring
-                             or Sleeper matchups
-                  ──APNs───► update content-state
+                             add to la:sessions (KV)
+Cron (*/5, game windows)────► group sessions by league
+                             fetch each league once
+                             (MFL liveScoring / Sleeper matchups)
+                  ──APNs───► push each user's matchup
 End activity      ──DELETE─► /v1/live-activity/:id
 ```
 
-Cron runs **every minute** (Cloudflare schedule minimum). That’s enough for football scoring cadence; foreground app polling (~20s) still fills gaps while Sideline is open.
+Cron runs **every 5 minutes, only during NFL game windows** (Sat/Sun afternoons, and the Thu/Sun/Mon night games that run past midnight UTC — see `wrangler.toml`). Outside those windows the Worker never wakes. Foreground app polling (~20s) still fills gaps while Sideline is open.
+
+Each tick costs:
+
+- **KV:** 1 read with no active sessions; otherwise 2 reads and at most 1 write (only when a score changed). All sessions live in `la:sessions` (written only by register/delete) and last-pushed content in `la:state` (written only by the cron). That keeps it well under the free tier's 1,000 writes/day.
+- **Score APIs:** one fetch per active league/week, shared by every user in that league. MFL needs a login cookie, so the Worker uses any registered member's cookie for the whole league.
+- **APNs:** one push per live user every tick, even if scores are unchanged, so the Live Activity's "next sync" countdown resets. Each push carries `nextSyncAt` (the next 5-minute boundary).
+
+On the free plan a single run can make 50 outbound requests (league fetches + pushes), which limits how many users can have Live Activities running at once. Workers Paid raises that.
 
 ## Apple setup (one-time)
 
@@ -119,7 +128,7 @@ Settings → **Appearance** → enable Matchup Live Activity, then:
 
 Rebuild and run on a **physical iPhone** (Live Activities + push tokens need a device).
 
-Cron (`* * * * *`) is already in `wrangler.toml` — Cloudflare will poll scores ~every minute after deploy.
+The cron schedule is already in `wrangler.toml` — after deploy, Cloudflare polls scores every 5 minutes during game windows.
 
 ## Privacy
 

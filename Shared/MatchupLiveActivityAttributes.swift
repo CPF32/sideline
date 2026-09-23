@@ -12,6 +12,9 @@ struct MatchupLiveAttributes: ActivityAttributes {
         var playerLines: [String]
         /// Unix seconds — number in APNs JSON for Codable interop with the push backend.
         var lastUpdated: Double
+        /// Unix seconds of the next backend sync; drives the countdown. Nil when
+        /// no push backend is configured.
+        var nextSyncAt: Double? = nil
     }
 
     var leagueName: String

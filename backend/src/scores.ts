@@ -9,20 +9,60 @@ type ScoreSnapshot = {
   finalCount: number;
 };
 
-export async function fetchLiveScores(session: LiveSession): Promise<ScoreSnapshot | null> {
-  if (session.provider === "sleeper") {
-    return fetchSleeper(session);
-  }
-  return fetchMFL(session);
+/** One league's live data, fetched once per tick and shared by every session in it. */
+export type LeagueData =
+  | { provider: "sleeper"; matchups: Array<Record<string, unknown>> }
+  | { provider: "mfl"; franchises: Array<Record<string, unknown>> };
+
+function mflHost(session: LiveSession): string {
+  return (session.host ?? "").replace(/^https?:\/\//, "").replace(/\/+$/, "").toLowerCase();
 }
 
-async function fetchSleeper(session: LiveSession): Promise<ScoreSnapshot | null> {
+/** Sessions with the same key read the same league/week and share one fetch. */
+export function leagueKey(session: LiveSession): string {
+  return session.provider === "sleeper"
+    ? `sleeper:${session.leagueId}:${session.week}`
+    : `mfl:${mflHost(session)}:${session.season}:${session.leagueId}:${session.week}`;
+}
+
+/**
+ * Fetches a league's live scores once for all of its sessions. MFL needs a
+ * logged-in cookie, so try each member's cookie until one works.
+ */
+export async function fetchLeague(sessions: LiveSession[]): Promise<LeagueData | null> {
+  const first = sessions[0];
+  if (!first) return null;
+  if (first.provider === "sleeper") return fetchSleeper(first);
+
+  const cookies = [...new Set(sessions.map((s) => s.mflCookie).filter((c): c is string => !!c))];
+  for (const cookie of cookies) {
+    const data = await fetchMFL(first, cookie);
+    if (data) return data;
+  }
+  return null;
+}
+
+/** Pulls one session's matchup out of its league's shared data. */
+export function snapshotFor(session: LiveSession, league: LeagueData): ScoreSnapshot | null {
+  return league.provider === "sleeper"
+    ? sleeperSnapshot(session, league.matchups)
+    : mflSnapshot(session, league.franchises);
+}
+
+async function fetchSleeper(session: LiveSession): Promise<LeagueData | null> {
   const url = `https://api.sleeper.app/v1/league/${encodeURIComponent(session.leagueId)}/matchups/${session.week}`;
   const res = await fetch(url, {
     headers: { "User-Agent": "SidelineLive/1.0 (com.cpf32.sideline; backend)" },
   });
   if (!res.ok) return null;
-  const matchups = (await res.json()) as Array<Record<string, unknown>>;
+  const matchups = (await res.json()) as Array<Record<string, unknown>> | null;
+  return Array.isArray(matchups) ? { provider: "sleeper", matchups } : null;
+}
+
+function sleeperSnapshot(
+  session: LiveSession,
+  matchups: Array<Record<string, unknown>>
+): ScoreSnapshot | null {
   const rosterId = Number(session.franchiseId);
   const mine = matchups.find((m) => Number(m.roster_id) === rosterId);
   if (!mine) return null;
@@ -63,9 +103,9 @@ async function fetchSleeper(session: LiveSession): Promise<ScoreSnapshot | null>
   };
 }
 
-async function fetchMFL(session: LiveSession): Promise<ScoreSnapshot | null> {
-  if (!session.host || !session.mflCookie) return null;
-  const host = session.host.replace(/^https?:\/\//, "");
+async function fetchMFL(session: LiveSession, cookie: string): Promise<LeagueData | null> {
+  const host = mflHost(session);
+  if (!host) return null;
   const base = `https://${host}/${session.season}/export`;
   const qs = new URLSearchParams({
     TYPE: "liveScoring",
@@ -76,7 +116,7 @@ async function fetchMFL(session: LiveSession): Promise<ScoreSnapshot | null> {
   });
   const res = await fetch(`${base}?${qs.toString()}`, {
     headers: {
-      Cookie: `MFL_USER_ID=${session.mflCookie}`,
+      Cookie: `MFL_USER_ID=${cookie}`,
       "User-Agent": "Sideline/1.0 (com.cpf32.sideline; iOS)",
       Accept: "application/json",
     },
@@ -90,7 +130,13 @@ async function fetchMFL(session: LiveSession): Promise<ScoreSnapshot | null> {
     : franchiseBag
       ? [franchiseBag as Record<string, unknown>]
       : [];
+  return franchises.length > 0 ? { provider: "mfl", franchises } : null;
+}
 
+function mflSnapshot(
+  session: LiveSession,
+  franchises: Array<Record<string, unknown>>
+): ScoreSnapshot | null {
   const mine =
     franchises.find((f) => String(f.id) === session.franchiseId) ??
     franchises.find((f) => String(f.id).padStart(4, "0") === session.franchiseId.padStart(4, "0"));
@@ -132,6 +178,14 @@ async function fetchMFL(session: LiveSession): Promise<ScoreSnapshot | null> {
   };
 }
 
+/** Matches the every-5-minutes cron schedule in wrangler.toml. */
+export const SYNC_INTERVAL_SECONDS = 5 * 60;
+
+/** Next 5-minute cron boundary after `now` (Unix seconds). */
+export function nextSyncAt(now = Math.floor(Date.now() / 1000)): number {
+  return (Math.floor(now / SYNC_INTERVAL_SECONDS) + 1) * SYNC_INTERVAL_SECONDS;
+}
+
 export function toContentState(
   session: LiveSession,
   scores: ScoreSnapshot
@@ -149,6 +203,7 @@ export function toContentState(
     statusLine: status,
     playerLines: scores.playerLines,
     lastUpdated: Math.floor(Date.now() / 1000),
+    nextSyncAt: nextSyncAt(),
   };
 }
 
