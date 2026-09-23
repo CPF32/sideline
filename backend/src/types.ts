@@ -37,7 +37,6 @@ export type LiveSession = {
   apnsEnvironment?: ApnsEnvironment;
   createdAt: number;
   updatedAt: number;
-  lastContent?: ContentState;
 };
 
 export type RegisterBody = {

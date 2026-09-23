@@ -13,13 +13,13 @@ Start Live Activity
   pushType: .token
 Observe pushToken  ──POST──► /v1/live-activity/register
                              store session in KV
-Cron (* * * * *)  ─────────► fetch MFL liveScoring
+Cron (game windows)─────────► fetch MFL liveScoring
                              or Sleeper matchups
                   ──APNs───► update content-state
 End activity      ──DELETE─► /v1/live-activity/:id
 ```
 
-Cron runs **every minute** (Cloudflare schedule minimum). That’s enough for football scoring cadence; foreground app polling (~20s) still fills gaps while Sideline is open.
+Cron runs **every minute, only during NFL game windows** (Sat/Sun afternoons, and the Thu/Sun/Mon night games that run past midnight UTC — see `wrangler.toml`). Outside those windows the Worker never wakes. When it does run with no active Live Activities it does a single KV read and no writes; with sessions it writes at most once per tick, and only when a score changed. That keeps it under the KV free tier’s 1,000 writes/day. Foreground app polling (~20s) still fills gaps while Sideline is open.
 
 ## Apple setup (one-time)
 
@@ -119,7 +119,7 @@ Settings → **Appearance** → enable Matchup Live Activity, then:
 
 Rebuild and run on a **physical iPhone** (Live Activities + push tokens need a device).
 
-Cron (`* * * * *`) is already in `wrangler.toml` — Cloudflare will poll scores ~every minute after deploy.
+The cron schedule is already in `wrangler.toml` — after deploy, Cloudflare polls scores about once a minute during game windows.
 
 ## Privacy
 
