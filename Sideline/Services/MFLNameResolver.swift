@@ -55,7 +55,7 @@ enum MFLNameResolver {
             guard let rawId else { continue }
             let id = normalizePlayerId(rawId)
             var name = (p["name"] as? String) ?? id
-            // MFL often uses "Last,First"
+            // MFL often uses "Last,First" or "Last, First"
             if name.contains(",") {
                 let parts = name.split(separator: ",", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
                 if parts.count == 2 {

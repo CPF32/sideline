@@ -181,6 +181,24 @@ enum AgentChatToolkit {
                     "additionalProperties": false
                 ]
             ]
+        ],
+        [
+            "type": "function",
+            "function": [
+                "name": "get_player_props",
+                "description": "Fetch Odds API player props (yards, receptions, anytime TD) for rostered players or specific player IDs. Use for sit/start ties and short-term trade timing. Does not override Out/Doubtful/Questionable or game locks.",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "player_ids": [
+                            "type": "array",
+                            "items": ["type": "string"],
+                            "description": "Optional 1–12 roster/FA player IDs. Omit to load props for the full active roster."
+                        ]
+                    ],
+                    "additionalProperties": false
+                ]
+            ]
         ]
     ]
 
@@ -196,22 +214,38 @@ enum AgentChatToolkit {
             : """
               FantasyPros is not configured — tell the user to add an API key in Settings → FantasyPros if they want expert ranks/projections in chat.
               """
+        let propsHint = OddsAPIClient.hasAPIKey
+            ? """
+              Player props tool is available:
+              - get_player_props for rush/rec/pass yards, receptions, anytime TD lines
+              Use props as a secondary sit/start or short-term trade signal after injury status and game locks.
+              """
+            : """
+              Odds API is not configured — props are unavailable until a key is added in Settings → APIs.
+              """
         return """
         You are \(agentName) in Sideline, in a follow-up chat about a prior proposal.
         Answer clearly and confidently when tool data supports it. If data is thin, say what you're uncertain about.
 
-        You have tools. USE THEM when the user asks about drops, pickups, lineup holes, free agents, rankings, or current roster — do not rely only on memory.
-        - get_roster before suggesting who to drop or sit/start
+        You have tools. USE THEM when the user asks about drops, pickups, lineup holes, free agents, rankings, props, or current roster — do not rely only on memory.
+        - get_roster before suggesting who to drop or sit/start (read injury fields carefully)
         - get_free_agents when recommending pickups (filter by position when relevant)
         - research_players on the shortlist of candidates BEFORE your final recommendation
+        - get_player_props when comparing healthy sit/start options or short-term trade value
         - fantasypros_rankings / fantasypros_projections / fantasypros_research for expert consensus and projections
         - get_league_rules / get_lineup_feasibility when discussing whether a lineup is legal
 
         \(fpHint)
+        \(propsHint)
+
+        Injury priority (lineup + trades):
+        - Never start Out / IR / PUP when a healthier option exists.
+        - Strongly avoid Doubtful; treat Questionable as high risk — prefer healthy backups unless the user wants upside.
+        - In trades, haircut Questionable/Doubtful/Out value and disclose status in the answer.
 
         For drop / pickup recommendations:
         - Call research_players and/or fantasypros_research on the players you are comparing.
-        - Analyze role/news, ranks, injury, and projections — not salary alone.
+        - Analyze role/news, ranks, injury, projections, and props — not salary alone.
         - Salary/cap is one factor among many; never make salary the whole rationale.
         - Prefer concrete player names + IDs. Plain text only (no JSON in the final reply).
         - Keep answers practical and short unless the user asks for depth.
@@ -256,6 +290,8 @@ enum AgentChatToolkit {
             return await fantasyProsNewsText(appState: appState, args: args)
         case "fantasypros_research":
             return await fantasyProsResearchText(appState: appState, args: args)
+        case "get_player_props":
+            return await playerPropsText(appState: appState, args: args)
         default:
             return "Unknown tool: \(name)"
         }
@@ -411,7 +447,86 @@ enum AgentChatToolkit {
                 chunks.append(await FantasyProsIntelService.shared.researchByNames(nameHits, limitPerPlayer: 2))
             }
         }
+        if OddsAPIClient.hasAPIKey {
+            let season = linked.season
+            let week = appState.team?.week ?? appState.selectedWeek
+            let live = !appState.isViewingHistoricWeek && DataCache.hasLiveGames(in: appState.team)
+            let propPlayers: [RosterPlayer]
+            if !rosterHits.isEmpty {
+                propPlayers = rosterHits
+            } else {
+                propPlayers = ids.prefix(8).map { id in
+                    RosterPlayer(
+                        playerId: id,
+                        name: nameHits.first ?? id,
+                        position: "",
+                        team: "",
+                        status: "freeAgent"
+                    )
+                }
+            }
+            await OddsIntelService.shared.ensureLoaded(
+                players: propPlayers.isEmpty ? (appState.team?.allRostered ?? []) : propPlayers,
+                season: season,
+                week: week,
+                isHistoric: appState.isViewingHistoricWeek,
+                hasLiveGames: live
+            )
+            if propPlayers.isEmpty, let roster = appState.team?.allRostered {
+                chunks.append(await OddsIntelService.shared.contextLines(for: roster, limit: 16))
+            } else {
+                chunks.append(await OddsIntelService.shared.propsToolText(for: propPlayers))
+            }
+        }
         return chunks.joined(separator: "\n\n")
+    }
+
+    @MainActor
+    private static func playerPropsText(appState: AppState, args: [String: Any]) async -> String {
+        guard OddsAPIClient.hasAPIKey else {
+            return "Odds API not configured. Add a key in Settings → APIs."
+        }
+        guard let linked = appState.linkedFranchise else {
+            return "No league linked — connect MFL or Sleeper first."
+        }
+        var ids: [String] = []
+        if let arr = args["player_ids"] as? [String] {
+            ids = arr
+        } else if let arr = args["player_ids"] as? [Any] {
+            ids = arr.compactMap { $0 as? String ?? ($0 as? Int).map(String.init) }
+        }
+        ids = ids.filter { !$0.isEmpty }
+
+        let roster = appState.team?.allRostered ?? []
+        let players: [RosterPlayer]
+        if ids.isEmpty {
+            players = roster
+        } else {
+            var hits = roster.filter { ids.contains($0.playerId) }
+            let missing = ids.filter { id in !hits.contains { $0.playerId == id } }
+            if !missing.isEmpty, let fas = try? await appState.fetchFreeAgents(sort: "ytd", limit: 40, position: nil) {
+                hits.append(contentsOf: fas.filter { missing.contains($0.playerId) })
+            }
+            for id in missing where !hits.contains(where: { $0.playerId == id }) {
+                hits.append(
+                    RosterPlayer(playerId: id, name: id, position: "", team: "", status: "unknown")
+                )
+            }
+            players = hits
+        }
+        guard !players.isEmpty else {
+            return "No players available for props. Sync the team first."
+        }
+        let week = appState.team?.week ?? appState.selectedWeek
+        let live = !appState.isViewingHistoricWeek && DataCache.hasLiveGames(in: appState.team)
+        await OddsIntelService.shared.ensureLoaded(
+            players: players,
+            season: linked.season,
+            week: week,
+            isHistoric: appState.isViewingHistoricWeek,
+            hasLiveGames: live
+        )
+        return await OddsIntelService.shared.propsToolText(for: players)
     }
 
     @MainActor

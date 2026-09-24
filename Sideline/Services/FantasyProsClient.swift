@@ -136,8 +136,13 @@ actor FantasyProsClient {
         await DataCache.shared.removeAll(matchingPrefix: "fp:")
     }
 
-    func news(limit: Int = 50) async throws -> Data {
-        try await get("nfl/news", query: ["limit": String(limit)], policy: .standard)
+    /// Global wire or player-filtered (`fpid` = FantasyPros player id).
+    func news(limit: Int = 100, fpid: String? = nil) async throws -> Data {
+        var query: [String: String] = ["limit": String(max(1, min(limit, 100)))]
+        if let fpid, !fpid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            query["fpid"] = fpid.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return try await get("nfl/news", query: query, policy: .standard)
     }
 
     func players(ecr: Bool = true) async throws -> Data {

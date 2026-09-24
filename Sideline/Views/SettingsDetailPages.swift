@@ -58,6 +58,7 @@ struct ThemeSettingsPage: View {
     @EnvironmentObject private var appState: AppState
     @AppStorage("sideline.appearance.darkMode") private var isDarkMode = false
     @AppStorage("sideline.liveActivity.enabled") private var liveActivityEnabled = false
+    @AppStorage("sideline.propsTab.visible") private var propsTabVisible = true
 
     var body: some View {
         SettingsPageChrome(title: "Appearance") {
@@ -82,6 +83,36 @@ struct ThemeSettingsPage: View {
                             .stroke(BrandTheme.hairline, lineWidth: 1)
                     )
             )
+
+            Toggle(isOn: $propsTabVisible) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Props tab")
+                        .font(BrandTheme.body(16, weight: .semibold))
+                        .foregroundStyle(BrandTheme.ink)
+                    Text(propsTabVisible
+                         ? "Shows player prop lines for your roster (Odds API)."
+                         : "Hidden from the tab bar. Turn on anytime — or from the Props empty state.")
+                        .font(BrandTheme.body(13))
+                        .foregroundStyle(BrandTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .tint(BrandTheme.accent)
+            .padding(.horizontal, BrandTheme.pageGutterTight)
+            .padding(.vertical, BrandTheme.space(12))
+            .background(
+                RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                    .fill(BrandTheme.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                            .stroke(BrandTheme.hairline, lineWidth: 1)
+                    )
+            )
+            .onChange(of: propsTabVisible) { _, visible in
+                if !visible, appState.selectedTab == .props {
+                    appState.selectedTab = .team
+                }
+            }
 
             Toggle(isOn: $liveActivityEnabled) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -351,7 +382,7 @@ struct APIKeySettingsPage: View {
     @State private var showScanner = false
 
     var body: some View {
-        SettingsPageChrome(title: "API key") {
+        SettingsPageChrome(title: "Model API key") {
             if let banner {
                 Text(banner)
                     .font(BrandTheme.body(14, weight: .medium))
@@ -437,6 +468,218 @@ struct APIKeySettingsPage: View {
             )
             .ignoresSafeArea()
         }
+    }
+}
+
+struct APIsSettingsPage: View {
+    private let rows: [SettingsDestination] = [.apiKey, .fantasyPros, .oddsAPI]
+
+    var body: some View {
+        SettingsPageChrome(title: "APIs") {
+            Text("Keys for the LLM, FantasyPros intel, and NFL market odds. Each is stored in Keychain on this device.")
+                .font(BrandTheme.body(14))
+                .foregroundStyle(BrandTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(spacing: 0) {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, dest in
+                    NavigationLink(value: dest) {
+                        HStack(spacing: 14) {
+                            Image(systemName: dest.systemImage)
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(BrandTheme.ink)
+                                .frame(width: BrandTheme.space(28))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(dest.title)
+                                    .font(BrandTheme.body(16, weight: .semibold))
+                                    .foregroundStyle(BrandTheme.ink)
+                                Text(apiSubtitle(dest))
+                                    .font(BrandTheme.body(12))
+                                    .foregroundStyle(BrandTheme.muted)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(BrandTheme.muted)
+                        }
+                        .padding(.vertical, BrandTheme.space(14))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    if index < rows.count - 1 {
+                        Rectangle()
+                            .fill(BrandTheme.hairline)
+                            .frame(height: 1)
+                            .padding(.leading, BrandTheme.space(42))
+                    }
+                }
+            }
+        }
+    }
+
+    private func apiSubtitle(_ dest: SettingsDestination) -> String {
+        switch dest {
+        case .apiKey: return "OpenAI, Anthropic, Google, OpenRouter…"
+        case .fantasyPros: return "Ranks, projections, player notes"
+        case .oddsAPI: return "NFL player props (yards, TDs, catches)"
+        default: return ""
+        }
+    }
+}
+
+struct OddsAPISettingsPage: View {
+    @EnvironmentObject private var appState: AppState
+    @State private var apiKeyDraft = KeychainStore.get(.oddsAPIKey) ?? ""
+    @State private var isKeyVisible = false
+    @State private var banner: String?
+    @State private var bannerError = false
+    @State private var isTesting = false
+    @State private var showScanner = false
+
+    var body: some View {
+        SettingsPageChrome(title: "Odds API") {
+            if let banner {
+                Text(banner)
+                    .font(BrandTheme.body(14, weight: .medium))
+                    .foregroundStyle(bannerError ? BrandTheme.danger : BrandTheme.ink)
+                    .padding(BrandTheme.space(12))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(bannerError ? BrandTheme.danger.opacity(0.18) : BrandTheme.accentWash)
+                    .clipShape(RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous))
+            }
+
+            Text("The Odds API supplies NFL player props (pass/rush/receiving yards, receptions, anytime TD) for the Analysis tab and player sheet. Sideline only fetches games your roster is in to save quota.")
+                .font(BrandTheme.body(14))
+                .foregroundStyle(BrandTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("API KEY")
+                    .font(BrandTheme.display(11, weight: .semibold))
+                    .tracking(1)
+                    .foregroundStyle(BrandTheme.muted)
+                HStack(spacing: 10) {
+                    Group {
+                        if isKeyVisible {
+                            TextField("Paste or scan API key", text: $apiKeyDraft)
+                        } else {
+                            SecureField("Paste or scan API key", text: $apiKeyDraft)
+                        }
+                    }
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(BrandTheme.body(16))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Button {
+                        isKeyVisible.toggle()
+                    } label: {
+                        Image(systemName: isKeyVisible ? "eye.slash" : "eye")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(BrandTheme.muted)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        showScanner = true
+                    } label: {
+                        Image(systemName: "camera.viewfinder")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(BrandTheme.ink)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, BrandTheme.pageGutterTight)
+                .padding(.vertical, BrandTheme.space(14))
+                .background(BrandTheme.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                        .stroke(BrandTheme.hairline, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous))
+            }
+
+            Text("Free keys at the-odds-api.com. Player props cost ~6 credits per game (markets × US region). Sideline caches for an hour (1 minute while games are live) and skips games your roster isn’t in.")
+                .font(BrandTheme.body(13))
+                .foregroundStyle(BrandTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                let trimmed = apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                KeychainStore.set(trimmed.isEmpty ? nil : trimmed, for: .oddsAPIKey)
+                let ok = trimmed.isEmpty || trimmed.count >= 8
+                banner = trimmed.isEmpty ? "API key cleared." : (ok ? "Odds API key saved." : "Key looks too short.")
+                bannerError = !ok && !trimmed.isEmpty
+                UINotificationFeedbackGenerator().notificationOccurred(bannerError ? .error : .success)
+                if ok {
+                    Task { await OddsIntelService.shared.reset() }
+                }
+            } label: {
+                Text("Save")
+            }
+            .buttonStyle(PrimaryButtonStyle())
+
+            Button {
+                Task { await testConnection() }
+            } label: {
+                Text(isTesting ? "Testing…" : "Test connection")
+            }
+            .buttonStyle(SecondaryButtonStyle())
+            .disabled(isTesting || apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).count < 8)
+
+            Text("After saving, open Analysis or a player profile — props attach by player name for that game.")
+                .font(BrandTheme.body(13))
+                .foregroundStyle(BrandTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .fullScreenCover(isPresented: $showScanner) {
+            APIKeyCameraScanner(
+                onScan: { value in
+                    apiKeyDraft = value
+                    isKeyVisible = true
+                    showScanner = false
+                    banner = "Scanned key — tap Save to store it in Keychain."
+                    bannerError = false
+                },
+                onCancel: {
+                    showScanner = false
+                }
+            )
+            .ignoresSafeArea()
+        }
+        .task {
+            let status = await OddsIntelService.shared.lastStatus
+            if let status, !status.isEmpty {
+                banner = status
+                bannerError = await OddsIntelService.shared.lastWasError
+            }
+        }
+    }
+
+    private func testConnection() async {
+        isTesting = true
+        defer { isTesting = false }
+        let trimmed = apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            KeychainStore.set(trimmed, for: .oddsAPIKey)
+        }
+        await OddsIntelService.shared.reset()
+        let roster = (appState.team?.starters ?? []) + (appState.team?.bench ?? [])
+        let season = appState.linkedFranchise?.season ?? Calendar.current.mflSeason
+        let week = max(1, appState.team?.week ?? appState.selectedWeek)
+        await OddsIntelService.shared.ensureLoaded(
+            players: roster,
+            season: season,
+            week: week,
+            isHistoric: appState.isViewingHistoricWeek,
+            hasLiveGames: false
+        )
+        banner = await OddsIntelService.shared.lastStatus ?? "Connected."
+        bannerError = await OddsIntelService.shared.lastWasError
     }
 }
 
@@ -564,7 +807,7 @@ struct FantasyProsSettingsPage: View {
             .buttonStyle(SecondaryButtonStyle())
             .disabled(isTesting || apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).count < 8)
 
-            Text("After saving, open a player profile or pull to refresh Team — FantasyPros ranks/projections attach there.")
+            Text("After saving, open a player profile or pull to refresh Team — FantasyPros ranks/projections attach there. Notes load on the player sheet (FantasyPros news for that player).")
                 .font(BrandTheme.body(13))
                 .foregroundStyle(BrandTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)

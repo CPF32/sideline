@@ -1,9 +1,9 @@
 import SwiftUI
+import SafariServices
 
 struct PlayerDetailSheet: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
 
     let player: RosterPlayer
 
@@ -11,37 +11,64 @@ struct PlayerDetailSheet: View {
     @State private var isLoading = true
     @State private var loadFailed = false
     @State private var expandedNewsIDs: Set<String> = []
+    @State private var browserItem: InAppNewsBrowserItem?
+    @State private var oddsProps: [OddsPlayerProp] = []
 
     var body: some View {
         NavigationStack {
             ZStack {
                 SidelineBackground()
                 ScrollView {
-                    VStack(alignment: .leading, spacing: BrandTheme.space(20)) {
+                    VStack(alignment: .leading, spacing: 0) {
                         headerBlock
-                        weekPointsBlock
-                        metaBlock
+                            .padding(.horizontal, BrandTheme.pageGutter)
+                            .padding(.top, BrandTheme.space(12))
+                            .padding(.bottom, BrandTheme.space(16))
+
+                        hairline
+
+                        snapshotStrip
+                            .padding(.horizontal, BrandTheme.pageGutter)
+                            .padding(.vertical, BrandTheme.space(16))
+
                         if isLoading {
+                            hairline
                             HStack(spacing: 10) {
                                 ProgressView()
                                 Text("Loading profile…")
                                     .font(BrandTheme.body(14))
                                     .foregroundStyle(BrandTheme.muted)
                             }
-                            .padding(.top, BrandTheme.space(8))
+                            .padding(.horizontal, BrandTheme.pageGutter)
+                            .padding(.vertical, BrandTheme.space(20))
                         } else if loadFailed, detailHasNoAPIFields {
+                            hairline
                             Text(emptyMessage)
                                 .font(BrandTheme.body(14))
                                 .foregroundStyle(BrandTheme.muted)
                                 .fixedSize(horizontal: false, vertical: true)
+                                .padding(.horizontal, BrandTheme.pageGutter)
+                                .padding(.vertical, BrandTheme.space(20))
+                            if showsMarketSection {
+                                hairline
+                                marketSection
+                            }
                         } else {
-                            profileFields
-                            newsBlock
+                            if showsMarketSection {
+                                hairline
+                                marketSection
+                            }
+                            if hasRankingsSection {
+                                hairline
+                                rankingsSection
+                            }
+                            if !notesBySource.isEmpty {
+                                hairline
+                                newsSection
+                            }
                         }
                     }
-                    .padding(.horizontal, BrandTheme.pageGutter)
-                    .padding(.top, BrandTheme.space(12))
-                    .padding(.bottom, BrandTheme.space(32))
+                    .padding(.bottom, BrandTheme.space(40))
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -59,7 +86,16 @@ struct PlayerDetailSheet: View {
                 }
             }
             .task { await load() }
+            .sheet(item: $browserItem) { item in
+                InAppSafariSheet(url: item.url)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            }
         }
+    }
+
+    private var hairline: some View {
+        Divider().overlay(BrandTheme.hairline)
     }
 
     private var emptyMessage: String {
@@ -73,6 +109,8 @@ struct PlayerDetailSheet: View {
         guard let detail else { return true }
         return Self.isEmptyProfile(detail)
     }
+
+    // MARK: - Header (kept)
 
     private var headerBlock: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -109,36 +147,103 @@ struct PlayerDetailSheet: View {
                     .foregroundStyle(BrandTheme.danger)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var weekPointsBlock: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionHeader("THIS WEEK", source: nil)
+    // MARK: - Snapshot strip (week + franchise + bio)
 
-            HStack(spacing: BrandTheme.space(24)) {
-                if let proj = player.projectedPoints {
-                    pointStat(label: "Projected", value: proj, live: false)
-                }
-                let lock = player.gameLockState ?? "upcoming"
-                if lock == "started" || lock == "final", let actual = player.actualPoints {
-                    pointStat(label: lock == "started" ? "Live" : "Final", value: actual, live: lock == "started")
-                } else if player.projectedPoints == nil {
-                    Text("No projection available")
-                        .font(BrandTheme.body(13))
-                        .foregroundStyle(BrandTheme.muted)
-                }
-                Spacer(minLength: 0)
+    private var snapshotStrip: some View {
+        VStack(alignment: .leading, spacing: BrandTheme.space(10)) {
+            HStack(alignment: .top, spacing: BrandTheme.space(14)) {
+                weekMetrics
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                franchiseMetrics
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                bioMetrics
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-
             if let ytd = player.seasonPoints {
                 Text("Season \(String(format: "%.1f", ytd)) pts")
-                    .font(BrandTheme.body(13))
+                    .font(BrandTheme.body(12))
                     .foregroundStyle(BrandTheme.muted)
             }
         }
     }
 
-    private func pointStat(label: String, value: Double, live: Bool) -> some View {
+    private var weekMetrics: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("THIS WEEK")
+                .font(BrandTheme.display(12, weight: .semibold))
+                .foregroundStyle(BrandTheme.muted)
+                .tracking(1)
+            VStack(alignment: .leading, spacing: BrandTheme.space(10)) {
+                if let proj = player.projectedPoints {
+                    stripStat(label: "Proj", value: String(format: "%.1f", proj), live: false)
+                }
+                let lock = player.gameLockState ?? "upcoming"
+                if lock == "started" || lock == "final", let actual = player.actualPoints {
+                    stripStat(
+                        label: lock == "started" ? "Live" : "Final",
+                        value: String(format: "%.1f", actual),
+                        live: lock == "started"
+                    )
+                } else if player.projectedPoints == nil {
+                    Text("No projection")
+                        .font(BrandTheme.body(12))
+                        .foregroundStyle(BrandTheme.muted)
+                }
+            }
+        }
+    }
+
+    private var franchiseMetrics: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("FRANCHISE")
+                .font(BrandTheme.display(12, weight: .semibold))
+                .foregroundStyle(BrandTheme.muted)
+                .tracking(1)
+            VStack(alignment: .leading, spacing: 5) {
+                if let salary = player.salary {
+                    stripKV("Salary", SalaryFormat.compact(salary))
+                }
+                if let year = player.contractYear {
+                    stripKV("Contract", String(year))
+                }
+                stripKV("Roster", player.status.capitalized)
+            }
+        }
+    }
+
+    private var bioMetrics: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("BIO")
+                .font(BrandTheme.display(12, weight: .semibold))
+                .foregroundStyle(BrandTheme.muted)
+                .tracking(1)
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(bioDisplayRows, id: \.label) { row in
+                    if let value = row.value {
+                        stripKV(row.label, value)
+                    } else if isLoading {
+                        stripKVSkeleton(row.label)
+                    } else {
+                        stripKV(row.label, "—")
+                    }
+                }
+            }
+        }
+    }
+
+    /// Fixed Age / Size / Exp slots so Franchise never shifts when bio arrives.
+    private var bioDisplayRows: [(label: String, value: String?)] {
+        [
+            ("Age", detail?.age),
+            ("Size", detail.flatMap(sizeLabel(from:))),
+            ("Exp", detail?.yearsExp.map { "\($0) yr" })
+        ]
+    }
+
+    private func stripStat(label: String, value: String, live: Bool) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 5) {
                 Circle()
@@ -148,111 +253,178 @@ struct PlayerDetailSheet: View {
                     .font(BrandTheme.body(12, weight: .medium))
                     .foregroundStyle(BrandTheme.muted)
             }
-            Text(String(format: "%.1f", value))
+            Text(value)
                 .font(BrandTheme.mono(22, weight: .medium))
                 .foregroundStyle(BrandTheme.ink)
         }
     }
 
-    private var metaBlock: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let salary = player.salary {
-                metaRow("Salary", SalaryFormat.compact(salary))
-            }
-            if let year = player.contractYear {
-                metaRow("Contract", String(year))
-            }
-            metaRow("Roster", player.status.capitalized)
+    private func stripKV(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Text(label)
+                .font(BrandTheme.body(12))
+                .foregroundStyle(BrandTheme.muted)
+            Text(value)
+                .font(BrandTheme.mono(12, weight: .semibold))
+                .foregroundStyle(BrandTheme.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            Spacer(minLength: 0)
         }
     }
 
-    @ViewBuilder
-    private var profileFields: some View {
-        if let detail {
-            let hasBio = detail.age != nil || detail.height != nil || detail.weight != nil
-                || detail.number != nil || detail.college != nil || detail.yearsExp != nil
-                || detail.depthChart != nil || detail.status != nil
-            let hasMFL = detail.adp != nil || detail.mflRank != nil || detail.topAddsPct != nil
-            let hasFP = detail.fpRankECR != nil || detail.fpRosRank != nil
-                || detail.fpProjection != nil || detail.fpTier != nil
-
-            VStack(alignment: .leading, spacing: BrandTheme.space(18)) {
-                if hasBio {
-                    VStack(alignment: .leading, spacing: 8) {
-                        sectionHeader("BIO", source: nil)
-                        if let age = detail.age { metaRow("Age", age) }
-                        if let h = detail.height { metaRow("Height", h) }
-                        if let w = detail.weight { metaRow("Weight", "\(w) lb") }
-                        if let number = detail.number { metaRow("Number", "#\(number)") }
-                        if let college = detail.college { metaRow("College", college) }
-                        if let years = detail.yearsExp { metaRow("Exp", "\(years) yr") }
-                        if let depth = detail.depthChart { metaRow("Depth", depth) }
-                        if let status = detail.status { metaRow("Status", status) }
-                        if let inj = detail.injury, player.injuryStatus == nil || player.injuryStatus?.isEmpty == true {
-                            metaRow("Injury", inj)
-                        }
-                    }
-                }
-
-                if hasMFL {
-                    VStack(alignment: .leading, spacing: 8) {
-                        sectionHeader("MFL", source: nil)
-                        if let adp = detail.adp, adp.uppercased() != "N/A" {
-                            metaRow("ADP", adp)
-                        }
-                        if let rank = detail.mflRank { metaRow("Rank", rank) }
-                        if let adds = detail.topAddsPct { metaRow("Top adds", "\(adds)%") }
-                    }
-                }
-
-                if hasFP {
-                    VStack(alignment: .leading, spacing: 8) {
-                        sectionHeader("RANKINGS", source: "FantasyPros")
-                        if let ecr = detail.fpRankECR {
-                            let pos = detail.fpPosRank.map { " (\($0))" } ?? ""
-                            metaRow("Weekly ECR", "#\(ecr)\(pos)")
-                        }
-                        if let tier = detail.fpTier { metaRow("Tier", tier) }
-                        if let ros = detail.fpRosRank {
-                            let pos = detail.fpRosPosRank.map { " (\($0))" } ?? ""
-                            metaRow("ROS", "#\(ros)\(pos)")
-                        }
-                        if let proj = detail.fpProjection {
-                            metaRow("Proj", proj)
-                        }
-                    }
-                }
-            }
+    private func stripKVSkeleton(_ label: String) -> some View {
+        HStack(spacing: 5) {
+            Text(label)
+                .font(BrandTheme.body(12))
+                .foregroundStyle(BrandTheme.muted)
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(BrandTheme.muted.opacity(0.22))
+                .frame(width: 44, height: 11)
+                .redacted(reason: .placeholder)
+            Spacer(minLength: 0)
         }
+        .accessibilityLabel("\(label) loading")
+    }
+
+    // MARK: - Props
+
+    private var showsMarketSection: Bool {
+        if player.gameLockState == "bye" { return false }
+        if !oddsProps.isEmpty { return true }
+        return OddsAPIClient.hasAPIKey && !isLoading
     }
 
     @ViewBuilder
-    private var newsBlock: some View {
-        let items = resolvedNewsItems
-        if !items.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                sectionHeader("NOTES", source: items.first?.source)
-                ForEach(items.prefix(5)) { item in
-                    newsRow(item)
-                }
-                Text(newsFooterCopy(for: items))
-                    .font(BrandTheme.body(12))
+    private var marketSection: some View {
+        profileSection(title: "PROPS", source: oddsProps.first?.bookmaker ?? (OddsAPIClient.hasAPIKey ? "Odds API" : nil)) {
+            if oddsProps.isEmpty {
+                Text("No player props matched for \(player.name) yet.")
+                    .font(BrandTheme.body(13))
                     .foregroundStyle(BrandTheme.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 4)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(oddsProps.prefix(6).enumerated()), id: \.element.id) { index, prop in
+                        if index > 0 { hairline }
+                        propRow(prop)
+                    }
+                }
             }
         }
     }
 
-    private func newsFooterCopy(for items: [PlayerNewsItem]) -> String {
-        let sources = Set(items.map(\.source))
-        if sources.contains("FantasyPros") {
-            return "Tap a FantasyPros note to open the story. MFL notes expand in-app (MFL rarely ships article links)."
+    // MARK: - Bio (compact, beside franchise)
+
+    private func sizeLabel(from detail: PlayerDetail) -> String? {
+        let height = detail.height?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let weight = detail.weight.map { "\($0)" }
+        switch (height?.isEmpty == false ? height : nil, weight) {
+        case let (h?, w?):
+            return "\(h) / \(w) lb"
+        case let (h?, nil):
+            return h
+        case let (nil, w?):
+            return "\(w) lb"
+        default:
+            return nil
         }
-        if sources.contains("MFL") {
-            return "Tap a note to expand the full text. MFL doesn’t usually include outbound article links."
+    }
+
+    // MARK: - Rankings
+
+    private var hasRankingsSection: Bool {
+        guard let detail else { return false }
+        return detail.fpRankECR != nil || detail.fpRosRank != nil
+            || detail.fpProjection != nil || detail.fpTier != nil
+    }
+
+    @ViewBuilder
+    private var rankingsSection: some View {
+        if let detail {
+            let rows = rankingRows(from: detail)
+            profileSection(title: "RANKINGS", source: "FantasyPros") {
+                VStack(spacing: 0) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                        if index > 0 { hairline }
+                        detailRow(row.0, row.1, mono: true)
+                    }
+                }
+            }
         }
-        return "Tap a note to expand or open the linked story."
+    }
+
+    private func rankingRows(from detail: PlayerDetail) -> [(String, String)] {
+        var rows: [(String, String)] = []
+        if let ecr = detail.fpRankECR {
+            let pos = detail.fpPosRank.map { " (\($0))" } ?? ""
+            rows.append(("Weekly ECR", "#\(ecr)\(pos)"))
+        }
+        if let tier = detail.fpTier { rows.append(("Tier", tier)) }
+        if let ros = detail.fpRosRank {
+            let pos = detail.fpRosPosRank.map { " (\($0))" } ?? ""
+            rows.append(("ROS", "#\(ros)\(pos)"))
+        }
+        if let proj = detail.fpProjection { rows.append(("Proj", proj)) }
+        return rows
+    }
+
+    // MARK: - Notes
+
+    private var newsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(notesBySource.enumerated()), id: \.element.source) { groupIndex, group in
+                if groupIndex > 0 { hairline }
+                profileSection(title: "NOTES", source: group.source) {
+                    VStack(spacing: 0) {
+                        ForEach(Array(group.items.prefix(5).enumerated()), id: \.element.id) { index, item in
+                            if index > 0 { hairline }
+                            if item.source == "FantasyPros" {
+                                fantasyProsNewsRow(item)
+                            } else {
+                                hostNoteRow(item)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private struct NotesGroup {
+        let source: String
+        let items: [PlayerNewsItem]
+    }
+
+    private var notesBySource: [NotesGroup] {
+        let items = resolvedNewsItems
+        guard !items.isEmpty else { return [] }
+        var order: [String] = []
+        var buckets: [String: [PlayerNewsItem]] = [:]
+        for item in items {
+            let key = noteSourceLabel(item.source)
+            if buckets[key] == nil {
+                order.append(key)
+                buckets[key] = []
+            }
+            buckets[key, default: []].append(item)
+        }
+        order.sort { a, b in
+            if a == "FantasyPros" { return true }
+            if b == "FantasyPros" { return false }
+            if a == "MFL" { return true }
+            if b == "MFL" { return false }
+            return a < b
+        }
+        return order.compactMap { key in
+            guard let list = buckets[key], !list.isEmpty else { return nil }
+            return NotesGroup(source: key, items: list)
+        }
+    }
+
+    private func noteSourceLabel(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == "Notes" { return "MFL" }
+        return trimmed
     }
 
     private var resolvedNewsItems: [PlayerNewsItem] {
@@ -268,23 +440,37 @@ struct PlayerDetailSheet: View {
                 title: parts.first ?? line,
                 body: body,
                 linkURL: Self.firstURL(in: body) ?? Self.firstURL(in: line),
-                source: "Notes"
+                source: "MFL"
             )
         }
     }
 
-    private func newsRow(_ item: PlayerNewsItem) -> some View {
+    private func hostNoteRow(_ item: PlayerNewsItem) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(item.title)
+                .font(BrandTheme.body(14, weight: .semibold))
+                .foregroundStyle(BrandTheme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            if !item.body.isEmpty, item.body != item.title {
+                Text(item.body)
+                    .font(BrandTheme.body(13))
+                    .foregroundStyle(BrandTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, BrandTheme.space(10))
+    }
+
+    private func fantasyProsNewsRow(_ item: PlayerNewsItem) -> some View {
         let expanded = expandedNewsIDs.contains(item.id)
         let hasBody = !item.body.isEmpty
+        let hasLink = item.linkURL != nil
         return Button {
             if let url = item.linkURL {
-                openURL(url)
+                browserItem = InAppNewsBrowserItem(url: url)
             } else if hasBody {
-                if expanded {
-                    expandedNewsIDs.remove(item.id)
-                } else {
-                    expandedNewsIDs.insert(item.id)
-                }
+                toggleExpanded(item.id)
             }
         } label: {
             VStack(alignment: .leading, spacing: 6) {
@@ -294,8 +480,8 @@ struct PlayerDetailSheet: View {
                         .foregroundStyle(BrandTheme.ink)
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    if item.linkURL != nil {
-                        Image(systemName: "arrow.up.right")
+                    if hasLink {
+                        Image(systemName: "rectangle.bottomthird.inset.filled")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(BrandTheme.muted)
                     } else if hasBody {
@@ -304,26 +490,80 @@ struct PlayerDetailSheet: View {
                             .foregroundStyle(BrandTheme.muted)
                     }
                 }
-                if hasBody, expanded || item.linkURL != nil {
+                if hasBody {
                     Text(item.body)
                         .font(BrandTheme.body(13))
                         .foregroundStyle(BrandTheme.muted)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
-                        .lineLimit(item.linkURL != nil && !expanded ? 3 : nil)
-                } else if hasBody, !expanded, item.body != item.title {
-                    Text(item.body)
-                        .font(BrandTheme.body(13))
-                        .foregroundStyle(BrandTheme.muted)
-                        .multilineTextAlignment(.leading)
-                        .lineLimit(2)
+                        .lineLimit(hasLink && !expanded ? 3 : (expanded || hasLink ? nil : 2))
                 }
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, BrandTheme.space(10))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(item.linkURL == nil && !hasBody)
+        .disabled(!hasLink && !hasBody)
+    }
+
+    // MARK: - Shared chrome
+
+    private func profileSection<Content: View>(
+        title: String,
+        source: String?,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: BrandTheme.space(10)) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(BrandTheme.display(12, weight: .semibold))
+                    .foregroundStyle(BrandTheme.muted)
+                    .tracking(1)
+                Spacer(minLength: 8)
+                if let source, !source.isEmpty {
+                    Text(source)
+                        .font(BrandTheme.body(11, weight: .semibold))
+                        .foregroundStyle(BrandTheme.ink.opacity(0.55))
+                }
+            }
+            content()
+        }
+        .padding(.horizontal, BrandTheme.pageGutter)
+        .padding(.vertical, BrandTheme.space(16))
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func propRow(_ prop: OddsPlayerProp) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(prop.marketLabel)
+                .font(BrandTheme.body(14))
+                .foregroundStyle(BrandTheme.muted)
+            Spacer(minLength: 8)
+            OddsPropLineLabel(prop: prop)
+        }
+        .padding(.vertical, BrandTheme.space(10))
+    }
+
+    private func detailRow(_ label: String, _ value: String, mono: Bool = false) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(label)
+                .font(BrandTheme.body(14))
+                .foregroundStyle(BrandTheme.muted)
+            Spacer(minLength: 8)
+            Text(value)
+                .font(mono ? BrandTheme.mono(13, weight: .medium) : BrandTheme.body(14, weight: .medium))
+                .foregroundStyle(BrandTheme.ink)
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(.vertical, BrandTheme.space(10))
+    }
+
+    private func toggleExpanded(_ id: String) {
+        if expandedNewsIDs.contains(id) {
+            expandedNewsIDs.remove(id)
+        } else {
+            expandedNewsIDs.insert(id)
+        }
     }
 
     private static func firstURL(in text: String) -> URL? {
@@ -336,31 +576,21 @@ struct PlayerDetailSheet: View {
         return url
     }
 
-    private func sectionHeader(_ title: String, source: String?) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(title)
-                .font(BrandTheme.display(12, weight: .semibold))
-                .foregroundStyle(BrandTheme.muted)
-                .tracking(1)
-            Spacer(minLength: 8)
-            if let source, !source.isEmpty {
-                Text(source)
-                    .font(BrandTheme.body(11, weight: .semibold))
-                    .foregroundStyle(BrandTheme.ink.opacity(0.55))
+    private func mergeHostNotes(into fetched: inout PlayerDetail, from mfl: PlayerDetail) {
+        guard !mfl.newsItems.isEmpty || !mfl.newsHeadlines.isEmpty else { return }
+        if !mfl.newsItems.isEmpty {
+            var byId = Dictionary(uniqueKeysWithValues: fetched.newsItems.map { ($0.id, $0) })
+            for item in mfl.newsItems {
+                byId[item.id] = item
             }
-        }
-    }
-
-    private func metaRow(_ label: String, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(label)
-                .font(BrandTheme.body(13))
-                .foregroundStyle(BrandTheme.muted)
-                .frame(width: 88, alignment: .leading)
-            Text(value)
-                .font(BrandTheme.body(14, weight: .medium))
-                .foregroundStyle(BrandTheme.ink)
-            Spacer(minLength: 0)
+            fetched.newsItems = Array(byId.values)
+            fetched.newsHeadlines = fetched.newsItems.map { item in
+                item.body.isEmpty || item.body == item.title
+                    ? item.title
+                    : "\(item.title) — \(item.body)"
+            }
+        } else if fetched.newsHeadlines.isEmpty {
+            fetched.newsHeadlines = mfl.newsHeadlines
         }
     }
 
@@ -370,7 +600,6 @@ struct PlayerDetailSheet: View {
 
         await SleeperPlayerCatalog.shared.ensureLoaded()
 
-        // Shared profile pipeline for Sleeper + MFL: Sleeper bio → optional MFL ranks → FantasyPros.
         var fetched = PlayerDetail(
             playerId: player.playerId,
             name: player.name,
@@ -410,15 +639,8 @@ struct PlayerDetailSheet: View {
             if (fetched.injury == nil || fetched.injury?.isEmpty == true), let inj = mfl.injury {
                 fetched.injury = inj
             }
-            if fetched.newsItems.isEmpty, !mfl.newsItems.isEmpty {
-                fetched.newsItems = mfl.newsItems
-                fetched.newsHeadlines = mfl.newsHeadlines
-            } else if fetched.newsHeadlines.isEmpty {
-                fetched.newsHeadlines = mfl.newsHeadlines
-            }
+            mergeHostNotes(into: &fetched, from: mfl)
         } else if let linked = appState.linkedFranchise, linked.isSleeper {
-            // Same aggregate identity: Sleeper id → MFL id via DynastyProcess, then MFL research
-            // if the user also has any MFL league linked (cookies).
             await PlayerIDCrosswalk.shared.ensureLoaded()
             if let bridge = await PlayerIDCrosswalk.shared.record(sleeperId: player.playerId),
                let mflId = bridge.mflId,
@@ -430,10 +652,7 @@ struct PlayerDetailSheet: View {
                 if (fetched.injury == nil || fetched.injury?.isEmpty == true), let inj = mfl.injury {
                     fetched.injury = inj
                 }
-                if fetched.newsItems.isEmpty, !mfl.newsItems.isEmpty {
-                    fetched.newsItems = mfl.newsItems
-                    fetched.newsHeadlines = mfl.newsHeadlines
-                }
+                mergeHostNotes(into: &fetched, from: mfl)
             }
         }
 
@@ -462,11 +681,12 @@ struct PlayerDetailSheet: View {
                 week: week,
                 hasLiveGames: player.gameLockState == "started"
             )
-            // Prefer Sleeper catalog name/team/pos so FantasyPros matching works for Sleeper ids.
             var forMatch = player
             await PlayerIDCrosswalk.shared.ensureLoaded()
             if let bridge = await PlayerIDCrosswalk.shared.record(sleeperId: player.playerId) {
-                if !bridge.name.isEmpty { forMatch.name = bridge.name }
+                if !bridge.name.isEmpty {
+                    forMatch.name = FantasyProsIntelService.displayNameForMatching(bridge.name)
+                }
                 if !bridge.team.isEmpty { forMatch.team = bridge.team }
                 if !bridge.position.isEmpty { forMatch.position = bridge.position }
             }
@@ -477,13 +697,36 @@ struct PlayerDetailSheet: View {
                 )
             }
             if let record {
-                forMatch.name = record.fullName
+                let cleaned = FantasyProsIntelService.displayNameForMatching(record.fullName)
+                if forMatch.name == player.name || forMatch.name.isEmpty, !cleaned.isEmpty {
+                    forMatch.name = cleaned
+                }
                 if !record.team.isEmpty { forMatch.team = record.team }
                 if !record.position.isEmpty { forMatch.position = record.position }
             } else if let detailName = fetched.name, !detailName.isEmpty {
-                forMatch.name = detailName
+                forMatch.name = FantasyProsIntelService.displayNameForMatching(detailName)
+            } else {
+                forMatch.name = FantasyProsIntelService.displayNameForMatching(forMatch.name)
             }
             fetched = await FantasyProsIntelService.shared.enrichDetail(fetched, player: forMatch)
+        }
+
+        if OddsAPIClient.hasAPIKey, player.gameLockState != "bye" {
+            let live = !appState.isViewingHistoricWeek && player.gameLockState == "started"
+            let rosterSeed = (appState.team?.starters ?? []) + (appState.team?.bench ?? [])
+            let seed = rosterSeed.isEmpty ? [player] : rosterSeed
+            let season = appState.linkedFranchise?.season ?? Calendar.current.mflSeason
+            let week = max(1, appState.team?.week ?? appState.selectedWeek)
+            await OddsIntelService.shared.ensureLoaded(
+                players: seed,
+                season: season,
+                week: week,
+                isHistoric: appState.isViewingHistoricWeek,
+                hasLiveGames: live
+            )
+            oddsProps = await OddsIntelService.shared.props(for: player)
+        } else {
+            oddsProps = []
         }
 
         let empty = Self.isEmptyProfile(fetched)
@@ -511,4 +754,23 @@ struct PlayerDetailSheet: View {
             && detail.fpProjection == nil
             && detail.fpRosRank == nil
     }
+}
+
+private struct InAppNewsBrowserItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+private struct InAppSafariSheet: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        let config = SFSafariViewController.Configuration()
+        config.entersReaderIfAvailable = false
+        let controller = SFSafariViewController(url: url, configuration: config)
+        controller.dismissButtonStyle = .close
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
 }

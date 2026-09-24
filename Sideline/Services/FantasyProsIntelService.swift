@@ -81,7 +81,8 @@ actor FantasyProsIntelService {
            loadedWeek == week,
            loadedSeason == season,
            Date().timeIntervalSince(loadedAt) < maxAge,
-           hasProjections {
+           hasProjections,
+           !news.isEmpty {
             return
         }
         guard FantasyProsClient.hasAPIKey else {
@@ -134,7 +135,7 @@ actor FantasyProsIntelService {
             }
 
             var newsItems: [FantasyProsNewsItem] = []
-            if let data = try? await FantasyProsClient.shared.news() {
+            if let data = try? await FantasyProsClient.shared.news(limit: 100) {
                 newsItems = parseNews(data)
             }
 
@@ -339,19 +340,99 @@ actor FantasyProsIntelService {
     }
 
     func newsItems(for playerName: String, limit: Int = 4) async -> [FantasyProsNewsItem] {
+        filterCachedNews(playerName: playerName, limit: limit)
+    }
+
+    /// Prefer player-scoped FP news (`fpid`); fall back to name filter on the global wire.
+    func newsItems(for player: RosterPlayer, limit: Int = 4) async -> [FantasyProsNewsItem] {
+        let cleaned = Self.displayNameForMatching(player.name)
+        for candidate in [cleaned, player.name] where !candidate.isEmpty {
+            let cached = filterCachedNews(playerName: candidate, limit: limit)
+            if !cached.isEmpty { return cached }
+        }
+
+        for fpId in await fantasyProsIds(for: player) {
+            guard let data = try? await FantasyProsClient.shared.news(limit: max(limit, 15), fpid: fpId) else {
+                continue
+            }
+            let fetched = parseNews(data)
+            if !fetched.isEmpty {
+                var byId = Dictionary(uniqueKeysWithValues: news.map { ($0.id, $0) })
+                for item in fetched { byId[item.id] = item }
+                news = Array(byId.values)
+                return Array(fetched.prefix(limit))
+            }
+        }
+
+        // Last resort: search wire with cleaned name (Sleeper often appends Jr/III).
+        return filterCachedNews(playerName: cleaned, limit: limit)
+    }
+
+    private func filterCachedNews(playerName: String, limit: Int) -> [FantasyProsNewsItem] {
         let needle = playerName.lowercased()
         let (first, last) = splitName(playerName)
+        let firstFold = foldToken(first)
+        let lastFold = foldToken(last)
+        guard !lastFold.isEmpty || !needle.isEmpty else { return [] }
+
         let hits = news.filter { item in
             let blob = (item.playerName ?? "") + " " + item.title + " " + item.summary
             let lower = blob.lowercased()
-            if lower.contains(needle) { return true }
-            if !last.isEmpty, lower.contains(last.lowercased()) { return true }
-            if !first.isEmpty, lower.contains(first.lowercased()), lower.contains(last.lowercased()) {
-                return true
+            let blobFold = foldToken(blob)
+            if !needle.isEmpty, lower.contains(needle) { return true }
+            if !lastFold.isEmpty, blobFold.contains(lastFold) {
+                if firstFold.isEmpty { return true }
+                // First initial or full first token.
+                if blobFold.contains(firstFold) { return true }
+                if let initial = firstFold.first, blobFold.contains(String(initial) + lastFold) {
+                    return true
+                }
+                // Title often starts with "First Last …"
+                let (tFirst, tLast) = splitName(item.playerName ?? item.title)
+                return foldToken(tLast) == lastFold
+                    && (foldToken(tFirst).hasPrefix(String(firstFold.prefix(1))) || foldToken(tFirst) == firstFold)
             }
             return false
         }
         return Array(hits.prefix(limit))
+    }
+
+    private func fantasyProsIds(for player: RosterPlayer) async -> [String] {
+        var ids: [String] = []
+        func add(_ raw: String?) {
+            let v = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !v.isEmpty, !ids.contains(v) else { return }
+            ids.append(v)
+        }
+        // Prefer DynastyProcess Sleeper → FP map (most reliable for Sleeper leagues).
+        if let link = await PlayerIDCrosswalk.shared.record(sleeperId: player.playerId) {
+            add(link.fantasyProsId)
+        }
+        if let link = await PlayerIDCrosswalk.shared.resolve(playerId: player.playerId) {
+            add(link.fantasyProsId)
+        }
+        if let proj = await projection(for: player) { add(proj.fpId) }
+        if let weekly = await weeklyRank(for: player) { add(weekly.fpId) }
+        if let ros = await rosRank(for: player) { add(ros.fpId) }
+        return ids
+    }
+
+    /// Strip Jr/Sr/II/III so Sleeper catalog names match FantasyPros news.
+    static func displayNameForMatching(_ raw: String) -> String {
+        let suffixes: Set<String> = ["jr", "sr", "ii", "iii", "iv", "v"]
+        var parts = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: ".", with: "")
+            .split(whereSeparator: \.isWhitespace)
+            .map(String.init)
+        while let last = parts.last, suffixes.contains(last.lowercased()) {
+            parts.removeLast()
+        }
+        return parts.joined(separator: " ")
+    }
+
+    private func fantasyProsId(for player: RosterPlayer) async -> String? {
+        await fantasyProsIds(for: player).first
     }
 
     func news(for playerName: String, limit: Int = 3) async -> [String] {
@@ -397,7 +478,7 @@ actor FantasyProsIntelService {
            let pts = proj.points(for: FantasyProsClient.scoring) {
             d.fpProjection = String(format: "%.1f", pts)
         }
-        let fpNews = await newsItems(for: player.name, limit: 4)
+        let fpNews = await newsItems(for: player, limit: 4)
         if !fpNews.isEmpty {
             let mapped: [PlayerNewsItem] = fpNews.map { item in
                 PlayerNewsItem(
@@ -549,7 +630,14 @@ actor FantasyProsIntelService {
         let lim = min(15, max(1, limit))
         let items: [FantasyProsNewsItem]
         if let playerName, !playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            items = await newsItems(for: playerName, limit: lim)
+            let stub = RosterPlayer(
+                playerId: "name:\(playerName)",
+                name: playerName,
+                position: "",
+                team: "",
+                status: "fa"
+            )
+            items = await newsItems(for: stub, limit: lim)
         } else {
             items = Array(news.prefix(lim))
         }
@@ -596,7 +684,12 @@ actor FantasyProsIntelService {
             let weekly = await weeklyRank(for: stub)
             let ros = await rosRank(for: stub)
             let proj = await projection(for: stub)
-            let newsHits = await news(for: name, limit: limitPerPlayer)
+            let newsHits = await newsItems(for: stub, limit: limitPerPlayer).map { item in
+                let title = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                let summary = stripHTML(item.summary)
+                if summary.isEmpty { return title }
+                return "\(title) — \(summary)"
+            }
             if weekly == nil, ros == nil, proj == nil, newsHits.isEmpty {
                 lines.append("- \(name): (no FantasyPros match)")
                 continue
@@ -806,15 +899,27 @@ actor FantasyProsIntelService {
 
     private func splitName(_ raw: String) -> (String, String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let suffixes: Set<String> = ["jr", "sr", "ii", "iii", "iv", "v"]
         if trimmed.contains(",") {
             let parts = trimmed.split(separator: ",", maxSplits: 1).map {
                 $0.trimmingCharacters(in: .whitespaces)
             }
-            let last = parts.first ?? trimmed
+            var last = parts.first ?? trimmed
             let first = parts.count > 1 ? parts[1] : ""
+            // "Walker III, Kenneth"
+            let lastBits = last.split(whereSeparator: \.isWhitespace).map(String.init)
+            if let tail = lastBits.last, suffixes.contains(tail.lowercased().replacingOccurrences(of: ".", with: "")) {
+                last = lastBits.dropLast().joined(separator: " ")
+            }
             return (first, last)
         }
-        let parts = trimmed.split(separator: " ").map(String.init)
+        var parts = trimmed
+            .replacingOccurrences(of: ".", with: "")
+            .split(separator: " ")
+            .map(String.init)
+        while let last = parts.last, suffixes.contains(last.lowercased()) {
+            parts.removeLast()
+        }
         guard let last = parts.last else { return ("", trimmed) }
         let first = parts.dropLast().joined(separator: " ")
         return (first, last)

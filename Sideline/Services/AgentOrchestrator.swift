@@ -174,13 +174,19 @@ enum AgentOrchestrator {
               • started / final — game already kicked off or finished. Do NOT newly move these players FROM bench INTO starters. If they are already starters, KEEP them in starterIds (they are locked).
               • bye — do not start.
             - When filling open starter slots mid-week (e.g. Friday after Thursday games), only choose from players with gameLockState=upcoming.
-            - Move injured/out players OFF the active roster onto IR when IR slots remain; activate healthy IR players when eligible.
+            - INJURY / AVAILABILITY (highest priority after legality + game locks):
+              • Never start players marked Out / IR / Injured Reserve / PUP / Suspended when a healthier eligible option exists.
+              • Strongly deprioritize Doubtful — treat as nearly Out unless every healthy alternative is much worse AND criteria say otherwise.
+              • Questionable / Q: if avoidQuestionable=true (default), prefer healthy/probable backups even with a modest projection gap. Only start Q when the healthy option is clearly weaker or criteria allow risk.
+              • Mention injury status in each risky slot's `reason` and in `risks` when starting anyone Q/D/O.
+              • Move Out/IR-eligible players OFF the active roster onto IR when IR slots remain; activate healthy IR players when eligible.
+            - PLAYER PROPS (when PLAYER PROPS block is present): use rush/rec/pass yards, receptions, and anytime TD lines as a secondary signal for sit/start — favor players with stronger volume props when projections are close; do not override clear injury or lock constraints.
             - Keep taxi usage within taxi slot limits; do not start taxi players unless the league allows and they are activated.
             - Never leave required starter slots empty when eligible upcoming players are available on the active roster.
             - When auto-setting is possible, payload MUST be:
               {"week":\(week),"starterIds":[playerId…],"irIds":[playerId…]?,"taxiIds":[playerId…]?,"canAutoSet":true,"comments":string?,"slots":[{"slot":"QB","playerId":"…","name":"…","reason":"why this player for this slot"},…]}
-            - `slots` is REQUIRED when canAutoSet is true: one entry per starting slot (match league starter rules including flex). Each reason should be one short sentence (matchup, projection, injury avoidance).
-            - Prefer projected points among eligible (upcoming) players unless criteria say otherwise.
+            - `slots` is REQUIRED when canAutoSet is true: one entry per starting slot (match league starter rules including flex). Each reason should be one short sentence (matchup, projection, injury avoidance, prop support).
+            - Prefer projected points among eligible (upcoming) healthy players unless criteria say otherwise.
             """
         case .waiver:
             return shared + """
@@ -191,7 +197,7 @@ enum AgentOrchestrator {
             - Payload:
               {"addPlayerId":string,"dropPlayerId":string?,"bid":number?,"notes":string?}
             - addPlayerId must be a free-agent id from context. dropPlayerId must be a rostered (non-IR/taxi unless freeing a slot) id when dropping.
-            - Rank adds by: (1) bye/injury holes this week, (2) WEAK positions from POSITIONAL STRENGTH VS LEAGUE, (3) MFL research outlook (news, ADP/rank, age, trending adds, injury) for rest-of-season value, (4) salary/cap fit when present, (5) handcuff if criteria say so.
+            - Rank adds by: (1) bye/injury/questionable holes this week, (2) WEAK positions from POSITIONAL STRENGTH VS LEAGUE, (3) research outlook (news, ADP/rank, age, trending adds, injury) for rest-of-season value, (4) player props when present as a secondary volume signal, (5) salary/cap fit when present, (6) handcuff if criteria say so.
             - Prefer fixing WEAK spots over stacking already-STRONG positions. When dropping, prefer surplus at STRONG positions and consider long-term cost using research — don't cut a cheap young keeper just to stream one week if a higher-salary fading vet is available.
             - Do NOT make salary the primary rationale. Use MFL PLAYER RESEARCH in context to justify adds/drops.
             - Keep FAAB bids at or under max FAAB % / guardrail max when provided. Respect salary cap room when listed.
@@ -204,11 +210,17 @@ enum AgentOrchestrator {
             - Propose realistic trades using rostered player IDs AND draft pick IDs from context.
             - Read POSITIONAL STRENGTH VS LEAGUE and DRAFT PICK ASSETS carefully.
             - Prefer deals that improve WEAK positions by giving from STRONG positions and/or picks.
+            - INJURY WEIGHTING (critical):
+              • Do NOT acquire Out / IR / Doubtful players as primary win-now pieces without a steep discount and a clear stash/IR plan.
+              • Questionable targets: haircut value and call out the risk in `risks`; prefer healthy alternatives at the same position when comparable.
+              • Selling: injured/out assets on your roster are fair to move for healthier help or picks — disclose status in rationale.
+              • Never treat an injured star as full healthy value in either direction.
+            - PLAYER PROPS (when present): use volume lines as a secondary signal for short-term trade timing (buy low on healthy players with strong props; fade sellers whose props imply limited usage).
             - Payload:
               {"givePlayerIds":[string],"receivePlayerIds":[string],"givePickIds":[string]?,"receivePickIds":[string]?,"partnerFranchiseId":string?,"notes":string?}
             - givePickIds / receivePickIds must be pickId values from DRAFT PICK ASSETS (FP_… form) when including picks.
             - Player-only, pick-only, or mixed deals are all valid. Include partnerFranchiseId when a logical partner is clear.
-            - Contenders: trade future picks for win-now talent at WEAK spots. Rebuilders: trade surplus talent for picks / youth.
+            - Contenders: trade future picks for win-now talent at WEAK spots — but only healthy/probable win-now talent. Rebuilders: trade surplus talent for picks / youth.
             """
         case .draft:
             return shared + """
@@ -411,9 +423,10 @@ enum TeamContextBuilder {
             } else {
                 parts.append("POSITIONAL STRENGTH VS LEAGUE: (not loaded — use roster depth and starter slots as a proxy)")
             }
-            if let playerResearch, !playerResearch.isEmpty {
-                parts.append(playerResearch)
-            }
+        }
+        if let playerResearch, !playerResearch.isEmpty,
+           focus == .waiver || focus == .trade || focus == .draft || focus == .lineup {
+            parts.append(playerResearch)
         }
 
         switch focus {
@@ -433,8 +446,9 @@ enum TeamContextBuilder {
             2) Otherwise fill every required starter slot per LEAGUE ROSTER RULES (position limits + totalStarters).
             3) If starters are empty, the week lineup is NOT set — choose a full legal set of starterIds from upcoming-game players only (plus already-locked current starters if any).
             4) GAME LOCKS: keep current starters whose game is started/final; never promote bench players whose game is started/final/bye into starters.
-            5) Fix IR/taxi: injured/out → IR when slots remain; healthy IR → activate to bench/starter; taxi within limits.
-            6) Return starterIds for the week plus desired irIds/taxiIds when changing those lists.
+            5) INJURIES FIRST: sit Out/Doubtful; sit Questionable when avoidQuestionable=true and a healthy option exists; move Out→IR when slots remain; activate healthy IR.
+            6) Use PLAYER PROPS (if present) as a tie-breaker on close sit/start calls among healthy players.
+            7) Return starterIds for the week plus desired irIds/taxiIds when changing those lists.
             """)
             parts.append(gameLockSummary(team: team))
             if let lineupFeasibility {
@@ -474,6 +488,8 @@ enum TeamContextBuilder {
             parts.append("""
             TRADE TASK:
             Propose 1–3 realistic trades that improve WEAK positions (or contend/rebuild goals) using players and/or draft picks from context.
+            Heavily discount Out / IR / Doubtful / Questionable players on either side — call status out in rationale and risks.
+            Use PLAYER PROPS when present as a secondary short-term signal only.
             Include givePickIds/receivePickIds when picks improve the deal. Name partnerFranchiseId when possible.
             """)
         case .draft:
@@ -584,11 +600,17 @@ enum TeamContextBuilder {
                 }
             }
         let injuredActive = (team.starters + team.bench).filter {
-            let s = ($0.injuryStatus ?? "").lowercased()
-            return s.contains("out") || s.contains("ir") || s.contains("injured") || s == "o"
+            InjuryStatusWeight.isUnavailable($0.injuryStatus)
+        }
+        let questionableActive = (team.starters + team.bench).filter {
+            InjuryStatusWeight.isQuestionableOrDoubtful($0.injuryStatus)
+                && !InjuryStatusWeight.isUnavailable($0.injuryStatus)
         }
         if !injuredActive.isEmpty {
-            lines.append("- injured on active roster (consider IR): " + injuredActive.map { "\($0.playerId) \($0.name) (\($0.injuryStatus ?? "?"))" }.joined(separator: "; "))
+            lines.append("- OUT/IR on active roster (do not start; prefer IR): " + injuredActive.map { "\($0.playerId) \($0.name) (\($0.injuryStatus ?? "?"))" }.joined(separator: "; "))
+        }
+        if !questionableActive.isEmpty {
+            lines.append("- QUESTIONABLE/DOUBTFUL on active roster (deprioritize for lineup; haircut trade value): " + questionableActive.map { "\($0.playerId) \($0.name) (\($0.injuryStatus ?? "?"))" }.joined(separator: "; "))
         }
         return lines.joined(separator: "\n")
     }
@@ -606,6 +628,33 @@ enum TeamContextBuilder {
     private static func fmt(_ v: Double?) -> String {
         guard let v else { return "—" }
         return String(format: "%.1f", v)
+    }
+}
+
+/// Shared injury string parsing for agent prompts / compliance.
+enum InjuryStatusWeight {
+    static func normalized(_ raw: String?) -> String {
+        (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    /// Out / IR / PUP / suspended — should not start; move to IR when possible.
+    static func isUnavailable(_ raw: String?) -> Bool {
+        let s = normalized(raw)
+        guard !s.isEmpty else { return false }
+        if s == "o" || s == "out" { return true }
+        if s.contains("out") || s.contains("injured reserve") { return true }
+        if s == "ir" || s.hasPrefix("ir ") || s.contains(" ir") { return true }
+        if s.contains("pup") || s.contains("suspended") || s.contains("covid") { return true }
+        return false
+    }
+
+    /// Questionable or Doubtful — deprioritize for lineup; haircut for trades.
+    static func isQuestionableOrDoubtful(_ raw: String?) -> Bool {
+        let s = normalized(raw)
+        guard !s.isEmpty else { return false }
+        if s == "q" || s == "d" || s == "doubtful" || s == "questionable" { return true }
+        if s.contains("doubt") || s.contains("question") { return true }
+        return false
     }
 }
 

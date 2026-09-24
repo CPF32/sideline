@@ -4,8 +4,10 @@ enum SettingsDestination: String, Hashable, CaseIterable, Identifiable {
     case theme
     case league
     case model
+    case apis
     case apiKey
     case fantasyPros
+    case oddsAPI
     case teamGoals
     case agentCriteria
     case activity
@@ -19,8 +21,10 @@ enum SettingsDestination: String, Hashable, CaseIterable, Identifiable {
         case .theme: return "Appearance"
         case .league: return "Leagues"
         case .model: return "Model"
-        case .apiKey: return "API key"
+        case .apis: return "APIs"
+        case .apiKey: return "Model API key"
         case .fantasyPros: return "FantasyPros"
+        case .oddsAPI: return "Odds API"
         case .teamGoals: return "Team goals"
         case .agentCriteria: return "Agent criteria"
         case .activity: return "Activity"
@@ -34,8 +38,10 @@ enum SettingsDestination: String, Hashable, CaseIterable, Identifiable {
         case .theme: return "paintpalette"
         case .league: return "link"
         case .model: return "cpu"
+        case .apis: return "key.horizontal"
         case .apiKey: return "key"
         case .fantasyPros: return "chart.line.uptrend.xyaxis"
+        case .oddsAPI: return "chart.bar.doc.horizontal"
         case .teamGoals: return "flag"
         case .agentCriteria: return "slider.horizontal.3"
         case .activity: return "list.bullet"
@@ -52,7 +58,7 @@ struct SettingsView: View {
     @State private var showSignOutConfirm = false
 
     private let rows: [SettingsDestination] = [
-        .league, .model, .apiKey, .fantasyPros, .teamGoals, .agentCriteria, .activity, .theme, .about
+        .league, .model, .apis, .teamGoals, .agentCriteria, .activity, .theme, .about
     ]
 
     var body: some View {
@@ -90,9 +96,7 @@ struct SettingsView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    Text(BrandTheme.appName.uppercased())
-                        .font(BrandTheme.display(18, weight: .bold))
-                        .tracking(1)
+                    SidelineNavTitle()
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -147,8 +151,10 @@ struct SettingsDetailRouter: View {
             case .theme: ThemeSettingsPage()
             case .league: LeagueSettingsPage()
             case .model: ModelSettingsPage(llm: appState.llmSettings)
+            case .apis: APIsSettingsPage()
             case .apiKey: APIKeySettingsPage(llm: appState.llmSettings)
             case .fantasyPros: FantasyProsSettingsPage()
+            case .oddsAPI: OddsAPISettingsPage()
             case .teamGoals: TeamGoalsSettingsPage()
             case .agentCriteria: AgentCriteriaListPage()
             case .activity: ActivitySettingsPage()

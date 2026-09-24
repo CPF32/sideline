@@ -57,9 +57,7 @@ struct AgentsSheet: View {
             .animation(.easeInOut(duration: 0.2), value: appState.isRunningAgent)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    Text(BrandTheme.appName.uppercased())
-                        .font(BrandTheme.display(18, weight: .bold))
-                        .tracking(1)
+                    SidelineNavTitle()
                 }
             }
             .navigationBarTitleDisplayMode(.inline)

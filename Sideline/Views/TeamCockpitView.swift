@@ -37,8 +37,11 @@ struct TeamCockpitView: View {
                         }
                     }
                     .padding(.bottom, BrandTheme.space(88))
+                    .sidelinePullRefreshReader()
                 }
-                .refreshable { await appState.syncTeam() }
+                .sidelinePullToRefresh {
+                    await appState.syncTeam()
+                }
 
                 if showApprovalsSnackbar {
                     approvalsSnackbar
@@ -51,9 +54,7 @@ struct TeamCockpitView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    Text(BrandTheme.appName.uppercased())
-                        .font(BrandTheme.display(18, weight: .bold))
-                        .tracking(1)
+                    SidelineNavTitle()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     if appState.linkedFranchise == nil {
@@ -160,9 +161,6 @@ struct TeamCockpitView: View {
                     }
                 }
                 HStack(spacing: 10) {
-                    if appState.isSyncing {
-                        ProgressView()
-                    }
                     WeekPickerControl()
                 }
             }

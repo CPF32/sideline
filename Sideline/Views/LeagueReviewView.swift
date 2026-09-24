@@ -34,17 +34,18 @@ struct LeagueReviewView: View {
                                 .padding(.top, BrandTheme.space(20))
                                 .padding(.bottom, BrandTheme.space(40))
                             }
+                            .sidelinePullRefreshReader()
                         }
-                        .refreshable { await appState.syncLeagueReview() }
+                        .sidelinePullToRefresh {
+                            await appState.syncLeagueReview()
+                        }
                     }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    Text(BrandTheme.appName.uppercased())
-                        .font(BrandTheme.display(18, weight: .bold))
-                        .tracking(1)
+                    SidelineNavTitle()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     if appState.linkedFranchise != nil {
@@ -95,9 +96,6 @@ struct LeagueReviewView: View {
                 }
             }
             HStack(spacing: 10) {
-                if appState.isLoadingLeague {
-                    ProgressView()
-                }
                 WeekPickerControl()
             }
         }

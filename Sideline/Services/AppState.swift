@@ -31,6 +31,8 @@ final class AppState: ObservableObject {
     @Published var upcomingMatchups: [UpcomingMatchupPreview] = []
     @Published var leagueReview: LeagueReviewSnapshot?
     @Published var isLoadingLeague = false
+    /// Props tab Odds API refresh (drives SIDELINE title loading motion).
+    @Published var isLoadingProps = false
     @Published var followUpProposal: ActionProposal?
     @Published var teamWeekSummary: CachedWeekSummary?
     @Published var leagueWeekSummary: CachedWeekSummary?
@@ -763,30 +765,38 @@ final class AppState: ObservableObject {
             }
 
             var playerResearch: String?
-            let needsResearch = desk == .waiver || desk == .trade || desk == .gm
+            let needsResearch = desk == .waiver || desk == .trade || desk == .gm || desk == .lineup
             if needsResearch, let linked = linkedFranchise {
-                pushAgentActivity("Researching players (MFL profile + Sleeper intel)…")
+                pushAgentActivity(
+                    desk == .lineup
+                        ? "Loading injury + player props context…"
+                        : "Researching players (profile + Sleeper + props)…"
+                )
                 var researchIds: [String] = []
-                // Top FA candidates by YTD then last week.
-                let faYTD = freeAgents
-                    .sorted { ($0.seasonPoints ?? -1) > ($1.seasonPoints ?? -1) }
-                    .prefix(6)
-                    .map(\.playerId)
-                let faLW = freeAgents
-                    .sorted { ($0.lastWeekPoints ?? -1) > ($1.lastWeekPoints ?? -1) }
-                    .prefix(4)
-                    .map(\.playerId)
-                researchIds.append(contentsOf: faYTD)
-                researchIds.append(contentsOf: faLW)
-                // Likely drop candidates: lowest-projected bench.
-                let dropCandidates = team.bench
-                    .sorted { ($0.projectedPoints ?? 999) < ($1.projectedPoints ?? 999) }
-                    .prefix(4)
-                    .map(\.playerId)
-                researchIds.append(contentsOf: dropCandidates)
+                if desk == .lineup {
+                    researchIds.append(contentsOf: team.allRostered.map(\.playerId))
+                } else {
+                    // Top FA candidates by YTD then last week.
+                    let faYTD = freeAgents
+                        .sorted { ($0.seasonPoints ?? -1) > ($1.seasonPoints ?? -1) }
+                        .prefix(6)
+                        .map(\.playerId)
+                    let faLW = freeAgents
+                        .sorted { ($0.lastWeekPoints ?? -1) > ($1.lastWeekPoints ?? -1) }
+                        .prefix(4)
+                        .map(\.playerId)
+                    researchIds.append(contentsOf: faYTD)
+                    researchIds.append(contentsOf: faLW)
+                    // Likely drop candidates: lowest-projected bench.
+                    let dropCandidates = team.bench
+                        .sorted { ($0.projectedPoints ?? 999) < ($1.projectedPoints ?? 999) }
+                        .prefix(4)
+                        .map(\.playerId)
+                    researchIds.append(contentsOf: dropCandidates)
+                }
 
                 var chunks: [String] = []
-                if linked.isMFL {
+                if desk != .lineup, linked.isMFL {
                     let mfl = await MFLPlayerResearchService.summarize(
                         playerIds: researchIds,
                         linked: linked,
@@ -794,12 +804,15 @@ final class AppState: ObservableObject {
                     )
                     chunks.append(mfl)
                 }
+                let sleeperPool = desk == .lineup
+                    ? team.allRostered
+                    : team.allRostered + freeAgents.prefix(8).map { $0 }
                 let sleeperCtx = await SleeperPlayerCatalog.shared.contextLines(
-                    for: team.allRostered + freeAgents.prefix(8).map { $0 },
-                    limit: 24
+                    for: sleeperPool,
+                    limit: desk == .lineup ? 30 : 24
                 )
                 chunks.append(sleeperCtx)
-                if FantasyProsClient.hasAPIKey {
+                if FantasyProsClient.hasAPIKey, desk != .lineup {
                     pushAgentActivity("Loading FantasyPros rankings + projections…")
                     await FantasyProsIntelService.shared.ensureLoaded(
                         season: linked.season,
@@ -811,8 +824,29 @@ final class AppState: ObservableObject {
                     )
                     chunks.append(fpCtx)
                 }
+                if OddsAPIClient.hasAPIKey {
+                    pushAgentActivity("Loading player props…")
+                    let live = !isViewingHistoricWeek && DataCache.hasLiveGames(in: team)
+                    await OddsIntelService.shared.ensureLoaded(
+                        players: team.allRostered,
+                        season: linked.season,
+                        week: team.week,
+                        isHistoric: isViewingHistoricWeek,
+                        hasLiveGames: live
+                    )
+                    let propsCtx = await OddsIntelService.shared.contextLines(
+                        for: team.allRostered,
+                        limit: desk == .lineup ? 28 : 20
+                    )
+                    chunks.append(propsCtx)
+                }
                 playerResearch = chunks.joined(separator: "\n\n")
-                pushAgentActivity("Loaded player research (\(linked.provider.shortName) + Sleeper\(FantasyProsClient.hasAPIKey ? " + FantasyPros" : ""))")
+                let extras = [
+                    FantasyProsClient.hasAPIKey && desk != .lineup ? "FantasyPros" : nil,
+                    OddsAPIClient.hasAPIKey ? "props" : nil
+                ].compactMap { $0 }
+                let suffix = extras.isEmpty ? "" : " + " + extras.joined(separator: " + ")
+                pushAgentActivity("Loaded player research (\(linked.provider.shortName) + Sleeper\(suffix))")
             }
 
             let llm = LLMClient(provider: llmSettings.provider, model: llmSettings.model, apiKey: apiKey)

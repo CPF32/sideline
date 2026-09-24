@@ -3,12 +3,14 @@ import SwiftUI
 enum MainTab: Hashable {
     case team
     case league
+    case props
     case agents
     case settings
 }
 
 struct MainTabView: View {
     @EnvironmentObject private var appState: AppState
+    @AppStorage("sideline.propsTab.visible") private var propsTabVisible = true
 
     var body: some View {
         TabView(selection: $appState.selectedTab) {
@@ -19,6 +21,12 @@ struct MainTabView: View {
             LeagueReviewView()
                 .tabItem { Label("League", systemImage: "sportscourt") }
                 .tag(MainTab.league)
+
+            if propsTabVisible {
+                AnalysisView()
+                    .tabItem { Label("Props", systemImage: "ticket") }
+                    .tag(MainTab.props)
+            }
 
             AgentsSheet()
                 .tabItem { Label("Agents", systemImage: "brain.head.profile") }
@@ -33,6 +41,11 @@ struct MainTabView: View {
         .toolbarBackground(.visible, for: .tabBar)
         .toolbarBackground(BrandTheme.background, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .onChange(of: propsTabVisible) { _, visible in
+            if !visible, appState.selectedTab == .props {
+                appState.selectedTab = .team
+            }
+        }
         .sheet(isPresented: $appState.showConnect) {
             ConnectLeagueHubView()
                 .environmentObject(appState)

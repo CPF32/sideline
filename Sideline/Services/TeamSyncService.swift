@@ -69,7 +69,7 @@ enum TeamSyncService {
         let (rosters, players, projections, schedule, standings, weeklyResults, liveScoring, playerScores, nflSchedule, salaries) = try await (
             rostersData, playersData, projectionsData, scheduleData, standingsData, weeklyResultsData, liveScoringData, playerScoresData, nflScheduleData, salariesData
         )
-        let playerMap = parsePlayers(players)
+        let playerMap = MFLNameResolver.parsePlayerNames(from: players)
         let injuryMap = parseInjuries(players)
         let franchiseNames = MFLNameResolver.parseFranchiseNames(from: leagueData)
         let resolvedFranchiseName = MFLNameResolver.franchiseName(
@@ -308,24 +308,6 @@ enum TeamSyncService {
             if let w = league[key] as? Int, w >= 1 { return w }
         }
         return nil
-    }
-
-    private static func parsePlayers(_ data: Data) -> [String: (name: String, pos: String, team: String)] {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
-        let playersAny = (root["players"] as? [String: Any])?["player"] ?? root["player"]
-        let list: [[String: Any]]
-        if let arr = playersAny as? [[String: Any]] { list = arr }
-        else if let one = playersAny as? [String: Any] { list = [one] }
-        else { return [:] }
-        var map: [String: (String, String, String)] = [:]
-        for p in list {
-            guard let id = p["id"] as? String ?? (p["id"] as? Int).map(String.init) else { continue }
-            let name = (p["name"] as? String) ?? id
-            let pos = (p["position"] as? String) ?? ""
-            let team = (p["team"] as? String) ?? ""
-            map[id] = (name, pos, team)
-        }
-        return map
     }
 
     private static func parseInjuries(_ data: Data) -> [String: String] {
