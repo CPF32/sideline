@@ -5,17 +5,26 @@ Cloudflare Worker that:
 1. **Live Activities** — polls MFL / Sleeper live scores and pushes ActivityKit updates via APNs.
 2. **Shared public cache** — serves NFL schedule, Sleeper nflState / players / public matchups, and DynastyProcess player IDs from **CACHE KV** (hot JSON) + **R2** (large catalogs) so devices hit Sideline first instead of slamming upstream on every cold launch.
 
-FantasyPros, The Odds API, and LLMs are **not** proxied (BYOK stays on-device). Private league sync (auth’d MFL / Sleeper rosters) stays device → vendor.
+FantasyPros and The Odds API are **BYOK** (bring your own key). Keys stay on-device and are sent only as `X-Vendor-API-Key` on cache miss so the Worker can fetch upstream. Responses are cached **per Apple user** in CACHE KV (`byok:*`) — never shared across users. This is distinct from a future shared “pro mode” Sideline key.
+
+Private league sync (auth’d MFL / Sleeper / ESPN rosters) stays device → vendor.
 
 ## Architecture
 
 ```
 iOS app                         Cloudflare Worker                    Upstream
 ────────                        ─────────────────                    ────────
-DataCache L2 ──miss──GET──────► /v1/public/* ──HIT──► CACHE KV / R2
+DataCache L1 ──miss──GET──────► /v1/public/* ──HIT──► CACHE KV / R2
                               │                MISS / ?revalidate=1
                               └──────────────────────► Sleeper / MFL public / GitHub
-                              Cron (game windows + daily catalogs)
+
+DataCache L1 ──miss──GET──────► /v1/byok/fantasypros/*  ──HIT──► CACHE byok:fp:…
+  + X-Sideline-Key              │                      MISS
+  + X-Sideline-User-Id          └──────────────────────► FantasyPros (user’s x-api-key)
+  + X-Vendor-API-Key
+
+DataCache L1 ──miss──GET──────► /v1/byok/odds/*  ──HIT──► CACHE byok:odds:…
+  + same auth headers           └──────────────────────► The Odds API (user’s apiKey)
 
 Live Activity register ──POST─► /v1/live-activity/* ──► SESSIONS KV + APNs
 ```
@@ -29,6 +38,15 @@ Live Activity register ──POST─► /v1/live-activity/* ──► SESSIONS K
 | `GET /v1/public/sleeper/matchups?leagueId=&week=` | Sleeper matchups | CACHE KV (+ watched set for cron) |
 | `GET /v1/public/sleeper/players` | Sleeper `/players/nfl` (~15MB) | R2 `catalogs/sleeper-players-nfl.json` |
 | `GET /v1/public/mfl/player-intel?season=&ids=` | MFL `playerProfile` (bio + news articles) + `players&DETAILS` | CACHE KV per player id |
+
+### Per-user BYOK cache (auth required)
+
+| Route | Source | Storage | TTL |
+| --- | --- | --- | --- |
+| `GET /v1/byok/fantasypros/<path>?…` | FantasyPros public v2 JSON | `byok:fantasypros:{userHash}:{keyFp}:{pathHash}` | 1h |
+| `GET /v1/byok/odds/<path>?…` | The Odds API v4 | `byok:odds:{userHash}:{keyFp}:{pathHash}` | events/props 1h; live props 60s (`X-Sideline-Live: 1`); historic 1d |
+
+Headers: `X-Sideline-Key` (REGISTER_SECRET), `X-Sideline-User-Id` (Apple user id), `X-Vendor-API-Key` (user’s FantasyPros or Odds key). Vendor keys are **never** written to KV.
 
 Query `?revalidate=1` (or `Cache-Control: no-cache`) forces an upstream refill. Responses include `ETag`, `Cache-Control`, and `X-Sideline-Cache: HIT|MISS|REVALIDATED|HIT-WAIT`.
 
@@ -170,7 +188,8 @@ Settings → Live Activity backend URL (defaults to the deployed Worker). Public
 - **Public cache** stores only public upstream blobs (schedule, Sleeper catalogs/state/matchups, DynastyProcess IDs). No user API keys, no MFL passwords.
 - **Sleeper** Live Activity sessions only send public league/roster IDs.
 - **MFL** Live Activity sessions send the `MFL_USER_ID` cookie for up to **8 hours** (Live Activity lifetime) in `SESSIONS` KV, TTL’d, deleted when the activity ends.
-- FantasyPros / Odds / LLM keys never leave the device.
+- **BYOK (FantasyPros / Odds)** — user keys are sent as `X-Vendor-API-Key` only on Worker cache miss so the Worker can call the vendor. Keys are **not** stored in KV; cached bodies are keyed by hashed user id + key fingerprint (`byok:*`) and never shared across users. LLM keys stay on-device only.
+- Future **pro mode** (Sideline-owned shared key) will use a separate `pro:*` cache namespace — not this BYOK path.
 
 ## Measuring impact
 

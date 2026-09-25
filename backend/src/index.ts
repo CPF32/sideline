@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { pushLiveActivityUpdate } from "./apns";
+import { handleByokFantasyPros, handleByokOdds } from "./byokCache";
 import {
   handleMflPlayerIntel,
   handleNflSchedule,
@@ -20,7 +21,7 @@ const app = new Hono<{ Bindings: Env }>();
 app.use("*", cors());
 
 app.get("/health", (c) =>
-  c.json({ ok: true, service: "sideline-live", publicCache: true, r2: true })
+  c.json({ ok: true, service: "sideline-live", publicCache: true, byokCache: true, r2: true })
 );
 
 // --- Shared public cache (no auth; rate-limit by Cloudflare / IP at edge) ---
@@ -93,6 +94,29 @@ app.post("/v1/public/refresh", async (c) => {
   const hot = await refreshPublicHot(c.env);
   const catalogOk = catalogs ? await refreshPublicCatalogs(c.env) : false;
   return c.json({ ok: true, ...hot, catalogs: catalogOk });
+});
+
+/**
+ * Per-user BYOK cache (FantasyPros / Odds).
+ * Requires X-Sideline-Key + X-Sideline-User-Id + X-Vendor-API-Key.
+ * Not the future shared “pro mode” key — responses are never shared across users.
+ */
+app.get("/v1/byok/fantasypros/*", async (c) => {
+  try {
+    return await handleByokFantasyPros(c.env, c.req.raw);
+  } catch (e) {
+    console.error("byok-fp", e instanceof Error ? e.message : e);
+    return c.json({ error: "upstream_failed" }, 502);
+  }
+});
+
+app.get("/v1/byok/odds/*", async (c) => {
+  try {
+    return await handleByokOdds(c.env, c.req.raw);
+  } catch (e) {
+    console.error("byok-odds", e instanceof Error ? e.message : e);
+    return c.json({ error: "upstream_failed" }, 502);
+  }
 });
 
 function unauthorized(c: { req: { header: (n: string) => string | undefined }; env: Env }) {

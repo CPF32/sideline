@@ -21,7 +21,48 @@ enum SidelinePublicClient {
             path: path,
             query: query,
             revalidate: revalidate,
-            timeout: timeout
+            timeout: timeout,
+            headers: [:]
+        ) {
+            return cached
+        }
+        return try await upstream()
+    }
+
+    /// Per-user BYOK proxy+cache on the Worker (FantasyPros / Odds).
+    /// Requires backend URL + register secret. Falls back to `upstream` when Worker is down.
+    static func byokData(
+        path: String,
+        query: [String: String] = [:],
+        vendorAPIKey: String,
+        live: Bool = false,
+        revalidate: Bool = false,
+        timeout: TimeInterval = 45,
+        upstream: @Sendable () async throws -> Data
+    ) async throws -> Data {
+        let secret = LiveActivityPushClient.registerSecret
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let userId = KeychainStore.get(.appleUserID)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !secret.isEmpty, !userId.isEmpty, vendorAPIKey.count >= 8 else {
+            return try await upstream()
+        }
+
+        var headers: [String: String] = [
+            "X-Sideline-Key": secret,
+            "X-Sideline-User-Id": userId,
+            "X-Vendor-API-Key": vendorAPIKey,
+        ]
+        if live {
+            headers["X-Sideline-Live"] = "1"
+        }
+
+        if let cached = try? await fetchFromWorker(
+            path: path,
+            query: query,
+            revalidate: revalidate,
+            timeout: timeout,
+            headers: headers
         ) {
             return cached
         }
@@ -32,7 +73,8 @@ enum SidelinePublicClient {
         path: String,
         query: [String: String],
         revalidate: Bool,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        headers: [String: String]
     ) async throws -> Data {
         let base = backendBaseURL
         guard base.hasPrefix("http"),
@@ -62,6 +104,9 @@ enum SidelinePublicClient {
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         if revalidate {
             request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        }
+        for (name, value) in headers {
+            request.setValue(value, forHTTPHeaderField: name)
         }
 
         let (data, response) = try await URLSession.shared.data(for: request)

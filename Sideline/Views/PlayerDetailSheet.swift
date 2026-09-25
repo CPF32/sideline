@@ -1,6 +1,25 @@
 import SwiftUI
 import SafariServices
 
+/// Keeps the last opened player profile in memory so reopen is instant (services already
+/// cache upstream, but the sheet used to reset `isLoading` and blank the UI every time).
+private actor PlayerDetailSheetCache {
+    static let shared = PlayerDetailSheetCache()
+
+    struct Entry {
+        var detail: PlayerDetail
+        var props: [OddsPlayerProp]
+    }
+
+    private var entries: [String: Entry] = [:]
+
+    func entry(for key: String) -> Entry? { entries[key] }
+
+    func store(key: String, detail: PlayerDetail, props: [OddsPlayerProp]) {
+        entries[key] = Entry(detail: detail, props: props)
+    }
+}
+
 struct PlayerDetailSheet: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
@@ -31,7 +50,20 @@ struct PlayerDetailSheet: View {
                             .padding(.horizontal, BrandTheme.pageGutter)
                             .padding(.vertical, BrandTheme.space(16))
 
-                        if isLoading {
+                        if showsMarketSection {
+                            hairline
+                            marketSection
+                        }
+                        if hasRankingsSection {
+                            hairline
+                            rankingsSection
+                        }
+                        if !notesBySource.isEmpty {
+                            hairline
+                            newsSection
+                        }
+
+                        if isLoading, !hasRenderableBody {
                             hairline
                             HStack(spacing: 10) {
                                 ProgressView()
@@ -41,7 +73,7 @@ struct PlayerDetailSheet: View {
                             }
                             .padding(.horizontal, BrandTheme.pageGutter)
                             .padding(.vertical, BrandTheme.space(20))
-                        } else if loadFailed, detailHasNoAPIFields {
+                        } else if loadFailed, detailHasNoAPIFields, !isLoading, !showsMarketSection {
                             hairline
                             Text(emptyMessage)
                                 .font(BrandTheme.body(14))
@@ -49,23 +81,6 @@ struct PlayerDetailSheet: View {
                                 .fixedSize(horizontal: false, vertical: true)
                                 .padding(.horizontal, BrandTheme.pageGutter)
                                 .padding(.vertical, BrandTheme.space(20))
-                            if showsMarketSection {
-                                hairline
-                                marketSection
-                            }
-                        } else {
-                            if showsMarketSection {
-                                hairline
-                                marketSection
-                            }
-                            if hasRankingsSection {
-                                hairline
-                                rankingsSection
-                            }
-                            if !notesBySource.isEmpty {
-                                hairline
-                                newsSection
-                            }
                         }
                     }
                     .padding(.bottom, BrandTheme.space(40))
@@ -92,6 +107,19 @@ struct PlayerDetailSheet: View {
                     .presentationDragIndicator(.visible)
             }
         }
+    }
+
+    /// True when bio, props, rankings, or notes already have something to show.
+    private var hasRenderableBody: Bool {
+        if !oddsProps.isEmpty { return true }
+        if hasRankingsSection { return true }
+        if !notesBySource.isEmpty { return true }
+        if let detail, !Self.isEmptyProfile(detail) { return true }
+        // Bio strip filled from catalog counts — avoid blank "Loading profile…" flash.
+        if detail?.age != nil || detail?.height != nil || detail?.weight != nil || detail?.yearsExp != nil {
+            return true
+        }
+        return false
     }
 
     private var hairline: some View {
@@ -188,19 +216,7 @@ struct PlayerDetailSheet: View {
                         .font(BrandTheme.body(12))
                         .foregroundStyle(BrandTheme.muted)
                 }
-                if let status = player.gameStatusLabel {
-                    stripKV(weekStatusLabel(for: lock), status)
-                }
             }
-        }
-    }
-
-    private func weekStatusLabel(for lock: String) -> String {
-        switch lock {
-        case "started": return "Clock"
-        case "final": return "Status"
-        case "bye": return "Bye"
-        default: return "Kickoff"
         }
     }
 
@@ -300,6 +316,7 @@ struct PlayerDetailSheet: View {
     private var showsMarketSection: Bool {
         if player.gameLockState == "bye" { return false }
         if !oddsProps.isEmpty { return true }
+        // Show empty-state only after load finishes (avoid "No props" flash while fetching).
         return OddsAPIClient.hasAPIKey && !isLoading
     }
 
@@ -603,8 +620,20 @@ struct PlayerDetailSheet: View {
     }
 
     private func load() async {
-        isLoading = true
-        loadFailed = false
+        let week = max(1, appState.team?.week ?? appState.selectedWeek)
+        let season = appState.linkedFranchise?.season ?? Calendar.current.mflSeason
+        let cacheKey = "\(player.playerId)|\(season)|w\(week)"
+
+        // Instant reopen: paint last successful sheet state, then refresh quietly.
+        if let cached = await PlayerDetailSheetCache.shared.entry(for: cacheKey) {
+            detail = cached.detail
+            oddsProps = cached.props
+            loadFailed = Self.isEmptyProfile(cached.detail)
+            isLoading = false
+        } else {
+            isLoading = true
+            loadFailed = false
+        }
 
         await SleeperPlayerCatalog.shared.ensureLoaded()
 
@@ -636,6 +665,21 @@ struct PlayerDetailSheet: View {
             )
         }
 
+        // Show bio as soon as Sleeper catalog fills it (don't wait on MFL / FP / Odds).
+        detail = fetched
+        if !Self.isEmptyProfile(fetched) || fetched.age != nil || fetched.height != nil {
+            isLoading = false
+        }
+
+        // Hydrate props from OddsIntel memory immediately when already warm.
+        if OddsAPIClient.hasAPIKey, player.gameLockState != "bye" {
+            let warm = await OddsIntelService.shared.props(for: player)
+            if !warm.isEmpty {
+                oddsProps = warm
+                isLoading = false
+            }
+        }
+
         if let linked = appState.linkedFranchise, linked.isMFL {
             let mfl = await MFLPlayerResearchService.fetchDetail(
                 playerId: player.playerId,
@@ -648,6 +692,7 @@ struct PlayerDetailSheet: View {
                 fetched.injury = inj
             }
             mergeHostNotes(into: &fetched, from: mfl)
+            detail = fetched
         } else if let linked = appState.linkedFranchise, linked.isSleeper {
             await PlayerIDCrosswalk.shared.ensureLoaded()
             if let bridge = await PlayerIDCrosswalk.shared.record(sleeperId: player.playerId),
@@ -661,6 +706,7 @@ struct PlayerDetailSheet: View {
                     fetched.injury = inj
                 }
                 mergeHostNotes(into: &fetched, from: mfl)
+                detail = fetched
             }
         } else if let linked = appState.linkedFranchise, linked.isESPN {
             await PlayerIDCrosswalk.shared.ensureLoaded()
@@ -675,6 +721,7 @@ struct PlayerDetailSheet: View {
                     fetched.injury = inj
                 }
                 mergeHostNotes(into: &fetched, from: mfl)
+                detail = fetched
             }
         }
 
@@ -693,11 +740,10 @@ struct PlayerDetailSheet: View {
                     source: "MFL"
                 )
             }
+            detail = fetched
         }
 
         if FantasyProsClient.hasAPIKey {
-            let season = appState.linkedFranchise?.season ?? Calendar.current.mflSeason
-            let week = max(1, appState.team?.week ?? appState.selectedWeek)
             await FantasyProsIntelService.shared.ensureLoaded(
                 season: season,
                 week: week,
@@ -731,14 +777,13 @@ struct PlayerDetailSheet: View {
                 forMatch.name = FantasyProsIntelService.displayNameForMatching(forMatch.name)
             }
             fetched = await FantasyProsIntelService.shared.enrichDetail(fetched, player: forMatch)
+            detail = fetched
         }
 
         if OddsAPIClient.hasAPIKey, player.gameLockState != "bye" {
             let live = !appState.isViewingHistoricWeek && player.gameLockState == "started"
             let rosterSeed = (appState.team?.starters ?? []) + (appState.team?.bench ?? [])
             let seed = rosterSeed.isEmpty ? [player] : rosterSeed
-            let season = appState.linkedFranchise?.season ?? Calendar.current.mflSeason
-            let week = max(1, appState.team?.week ?? appState.selectedWeek)
             await OddsIntelService.shared.ensureLoaded(
                 players: seed,
                 season: season,
@@ -747,7 +792,7 @@ struct PlayerDetailSheet: View {
                 hasLiveGames: live
             )
             oddsProps = await OddsIntelService.shared.props(for: player)
-        } else {
+        } else if player.gameLockState == "bye" {
             oddsProps = []
         }
 
@@ -755,6 +800,8 @@ struct PlayerDetailSheet: View {
         detail = fetched
         loadFailed = empty
         isLoading = false
+
+        await PlayerDetailSheetCache.shared.store(key: cacheKey, detail: fetched, props: oddsProps)
     }
 
     private static func isEmptyProfile(_ detail: PlayerDetail) -> Bool {

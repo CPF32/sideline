@@ -305,6 +305,16 @@ actor FantasyProsIntelService {
 
     /// Clear cache so the next ensureLoaded hits the network (e.g. after saving a new key).
     func reset() async {
+        clearMemory()
+        await FantasyProsClient.shared.clearCache()
+    }
+
+    /// Drop in-memory indexes only — keep on-disk per-user HTTP cache (e.g. scoring toggle).
+    func resetKeepingHTTPCache() async {
+        clearMemory()
+    }
+
+    private func clearMemory() {
         weeklyRankings = []
         rosRankings = []
         projections = []
@@ -323,7 +333,6 @@ actor FantasyProsIntelService {
         loadedAt = nil
         lastStatus = nil
         lastWasQuotaError = false
-        await FantasyProsClient.shared.clearCache()
     }
 
     func projection(for player: RosterPlayer) async -> FantasyProsProjection? {

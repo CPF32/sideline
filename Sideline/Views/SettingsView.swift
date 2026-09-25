@@ -113,7 +113,14 @@ struct SettingsView: View {
                 titleVisibility: .visible
             ) {
                 Button("Sign out", role: .destructive) {
-                    appState.auth.signOut()
+                    Task {
+                        // Clear user-scoped FantasyPros / Odds caches while Apple user id is still known.
+                        await FantasyProsClient.shared.clearCache()
+                        await OddsAPIClient.shared.clearCache()
+                        await FantasyProsIntelService.shared.reset()
+                        await OddsIntelService.shared.reset()
+                        await MainActor.run { appState.auth.signOut() }
+                    }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {

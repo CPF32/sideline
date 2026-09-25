@@ -55,6 +55,13 @@ enum FantasyProsError: LocalizedError {
 }
 
 /// Thin FantasyPros public v2 HTTP client (`x-api-key`).
+///
+/// Caching (aligned with FantasyPros API T&C):
+/// - Responses are cached **on-device only** (BYOK never leaves the phone).
+/// - Keys are scoped to the signed-in Apple user + API-key fingerprint so one
+///   manager’s FantasyPros data is never reused for another account.
+/// - Disk-backed so warm hits survive app relaunches and avoid unnecessary polling
+///   (T&C: “cache data on your end so that your application does not poll … unnecessarily”).
 actor FantasyProsClient {
     static let shared = FantasyProsClient()
 
@@ -83,6 +90,24 @@ actor FantasyProsClient {
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: "sideline.fantasypros.scoring")
         }
+    }
+
+    /// Stable per-user cache namespace: `fp:{appleUserId}:{apiKeyFingerprint}:…`
+    static func cacheUserScope() -> String {
+        let user = KeychainStore.get(.appleUserID)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let userPart = (user?.isEmpty == false) ? user! : "anonymous"
+        return "fp:\(userPart):\(apiKeyFingerprint()):"
+    }
+
+    /// Short non-reversible fingerprint so rotating keys doesn’t serve the wrong cache.
+    private static func apiKeyFingerprint() -> String {
+        guard let key = apiKey() else { return "nokey" }
+        var hash: UInt64 = 5381
+        for byte in key.utf8 {
+            hash = ((hash << 5) &+ hash) &+ UInt64(byte)
+        }
+        return String(hash, radix: 16)
     }
 
     func consensusRankings(
@@ -131,8 +156,22 @@ actor FantasyProsClient {
         )
     }
 
-    /// Drop FantasyPros HTTP cache (e.g. after saving a new key).
+    /// Drop this user’s FantasyPros HTTP cache (e.g. after saving a new key or sign-out).
+    /// Clears every fingerprint under the Apple user so a rotated key can’t leave stale blobs.
     func clearCache() async {
+        if let user = KeychainStore.get(.appleUserID)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !user.isEmpty {
+            await DataCache.shared.removeAll(matchingPrefix: "fp:\(user):")
+        }
+        await DataCache.shared.removeAll(matchingPrefix: "fp:anonymous:")
+        // Legacy unscoped keys from earlier builds (`fp:https://…`).
+        await DataCache.shared.removeAll(matchingPrefix: "fp:https")
+        await DataCache.shared.removeAll(matchingPrefix: "fp:http")
+    }
+
+    /// Wipe every FantasyPros cache entry on device (all users / keys).
+    func clearAllUsersCache() async {
         await DataCache.shared.removeAll(matchingPrefix: "fp:")
     }
 
@@ -162,8 +201,20 @@ actor FantasyProsClient {
             ? "\(base)/\(path)"
             : "\(base)/\(path)?\(queryString)"
 
-        return try await DataCache.shared.data(key: "fp:\(urlString)", policy: policy) {
-            try await self.fetch(urlString: urlString, apiKey: apiKey)
+        let key = "\(Self.cacheUserScope())\(urlString)"
+        return try await DataCache.shared.data(
+            key: key,
+            policy: policy,
+            persistToDisk: true
+        ) {
+            // L2: Cloudflare per-user BYOK cache → L3: direct FantasyPros.
+            try await SidelinePublicClient.byokData(
+                path: "/v1/byok/fantasypros/\(path)",
+                query: query,
+                vendorAPIKey: apiKey
+            ) {
+                try await self.fetch(urlString: urlString, apiKey: apiKey)
+            }
         }
     }
 

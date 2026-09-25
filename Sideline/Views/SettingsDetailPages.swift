@@ -810,6 +810,9 @@ struct FantasyProsSettingsPage: View {
                 .pickerStyle(.segmented)
                 .onChange(of: scoring) { _, newValue in
                     FantasyProsClient.scoring = newValue
+                    // Scoring is part of the request URL; drop in-memory intel so the next
+                    // load rehydrates from the (already user-keyed) disk cache for the new scoring.
+                    Task { await FantasyProsIntelService.shared.resetKeepingHTTPCache() }
                 }
             }
 

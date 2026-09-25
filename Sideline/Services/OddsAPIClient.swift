@@ -28,6 +28,12 @@ enum OddsAPIError: LocalizedError {
 }
 
 /// Thin client for The Odds API v4 — NFL events + per-event player props.
+///
+/// Caching (Odds API encourages app-side caching to protect quota):
+/// - L1: on-device DataCache, keyed per Apple user + API-key fingerprint
+/// - L2: Cloudflare Worker `/v1/byok/odds/*` (per-user KV; never shared across users)
+/// - L3: direct Odds API with the user’s key
+/// Distinct from future “pro mode” shared Sideline key — this is BYOK only.
 actor OddsAPIClient {
     static let shared = OddsAPIClient()
 
@@ -75,16 +81,40 @@ actor OddsAPIClient {
         return apiKey() != nil
     }
 
+    /// Stable per-user cache namespace for on-device L1.
+    static func cacheUserScope() -> String {
+        let user = KeychainStore.get(.appleUserID)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let userPart = (user?.isEmpty == false) ? user! : "anonymous"
+        return "odds:\(userPart):\(apiKeyFingerprint()):"
+    }
+
+    private static func apiKeyFingerprint() -> String {
+        guard let key = apiKey() else { return "nokey" }
+        var hash: UInt64 = 5381
+        for byte in key.utf8 {
+            hash = ((hash << 5) &+ hash) &+ UInt64(byte)
+        }
+        return String(hash, radix: 16)
+    }
+
     /// Upcoming / live NFL events. Does **not** count against quota.
     func nflEvents() async throws -> Data {
         guard let apiKey = Self.apiKey() else { throw OddsAPIError.missingAPIKey }
-        let cacheKey = "odds:events:\(sport)"
+        let cacheKey = "\(Self.cacheUserScope())events:\(sport)"
         if let hit = await DataCache.shared.get(cacheKey, policy: .standard) {
             return hit
         }
-        var components = URLComponents(string: "\(base)/sports/\(sport)/events")!
-        components.queryItems = [URLQueryItem(name: "apiKey", value: apiKey)]
-        let data = try await fetch(url: components.url!)
+        let path = "sports/\(sport)/events"
+        let data = try await SidelinePublicClient.byokData(
+            path: "/v1/byok/odds/\(path)",
+            query: [:],
+            vendorAPIKey: apiKey
+        ) {
+            var components = URLComponents(string: "\(self.base)/\(path)")!
+            components.queryItems = [URLQueryItem(name: "apiKey", value: apiKey)]
+            return try await self.fetch(url: components.url!)
+        }
         await DataCache.shared.set(data, for: cacheKey, persistToDisk: true)
         return data
     }
@@ -96,21 +126,32 @@ actor OddsAPIClient {
         hasLiveGames: Bool = false
     ) async throws -> Data {
         guard let apiKey = Self.apiKey() else { throw OddsAPIError.missingAPIKey }
-        let cacheKey = "odds:props:\(eventId):\(markets):us:american"
+        let cacheKey = "\(Self.cacheUserScope())props:\(eventId):\(markets):us:american"
         let policy: DataCache.Policy = .liveAware(hasLiveGames: hasLiveGames)
         if let hit = await DataCache.shared.get(cacheKey, policy: policy) {
             return hit
         }
-        var components = URLComponents(
-            string: "\(base)/sports/\(sport)/events/\(eventId)/odds"
-        )!
-        components.queryItems = [
-            URLQueryItem(name: "apiKey", value: apiKey),
-            URLQueryItem(name: "regions", value: "us"),
-            URLQueryItem(name: "markets", value: markets),
-            URLQueryItem(name: "oddsFormat", value: "american"),
+        let path = "sports/\(sport)/events/\(eventId)/odds"
+        let query = [
+            "regions": "us",
+            "markets": markets,
+            "oddsFormat": "american",
         ]
-        let data = try await fetch(url: components.url!)
+        let data = try await SidelinePublicClient.byokData(
+            path: "/v1/byok/odds/\(path)",
+            query: query,
+            vendorAPIKey: apiKey,
+            live: hasLiveGames
+        ) {
+            var components = URLComponents(string: "\(self.base)/\(path)")!
+            components.queryItems = [
+                URLQueryItem(name: "apiKey", value: apiKey),
+                URLQueryItem(name: "regions", value: "us"),
+                URLQueryItem(name: "markets", value: markets),
+                URLQueryItem(name: "oddsFormat", value: "american"),
+            ]
+            return try await self.fetch(url: components.url!)
+        }
         await DataCache.shared.set(data, for: cacheKey, persistToDisk: true)
         return data
     }
@@ -125,24 +166,38 @@ actor OddsAPIClient {
         let dateKey = Self.isoUTC(snapshot)
         let fromKey = commenceFrom.map(Self.isoUTC) ?? "-"
         let toKey = commenceTo.map(Self.isoUTC) ?? "-"
-        let cacheKey = "odds:hist-events:\(sport):\(dateKey):\(fromKey):\(toKey)"
+        let cacheKey = "\(Self.cacheUserScope())hist-events:\(sport):\(dateKey):\(fromKey):\(toKey)"
         if let hit = await DataCache.shared.get(cacheKey, policy: .day) {
             return hit
         }
-        var items: [URLQueryItem] = [
-            URLQueryItem(name: "apiKey", value: apiKey),
-            URLQueryItem(name: "date", value: dateKey),
-        ]
+        let path = "historical/sports/\(sport)/events"
+        var query: [String: String] = ["date": dateKey]
         if let commenceFrom {
-            items.append(URLQueryItem(name: "commenceTimeFrom", value: Self.isoUTC(commenceFrom)))
+            query["commenceTimeFrom"] = Self.isoUTC(commenceFrom)
         }
         if let commenceTo {
-            items.append(URLQueryItem(name: "commenceTimeTo", value: Self.isoUTC(commenceTo)))
+            query["commenceTimeTo"] = Self.isoUTC(commenceTo)
         }
-        var components = URLComponents(string: "\(base)/historical/sports/\(sport)/events")!
-        components.queryItems = items
         do {
-            let data = try await fetch(url: components.url!, historic: true)
+            let data = try await SidelinePublicClient.byokData(
+                path: "/v1/byok/odds/\(path)",
+                query: query,
+                vendorAPIKey: apiKey
+            ) {
+                var items: [URLQueryItem] = [
+                    URLQueryItem(name: "apiKey", value: apiKey),
+                    URLQueryItem(name: "date", value: dateKey),
+                ]
+                if let commenceFrom {
+                    items.append(URLQueryItem(name: "commenceTimeFrom", value: Self.isoUTC(commenceFrom)))
+                }
+                if let commenceTo {
+                    items.append(URLQueryItem(name: "commenceTimeTo", value: Self.isoUTC(commenceTo)))
+                }
+                var components = URLComponents(string: "\(self.base)/\(path)")!
+                components.queryItems = items
+                return try await self.fetch(url: components.url!, historic: true)
+            }
             await DataCache.shared.set(data, for: cacheKey, persistToDisk: true)
             return data
         } catch OddsAPIError.historicUnavailable {
@@ -158,27 +213,47 @@ actor OddsAPIClient {
     ) async throws -> Data {
         guard let apiKey = Self.apiKey() else { throw OddsAPIError.missingAPIKey }
         let dateKey = Self.isoUTC(snapshot)
-        let cacheKey = "odds:hist-props:\(eventId):\(dateKey):\(markets):us"
+        let cacheKey = "\(Self.cacheUserScope())hist-props:\(eventId):\(dateKey):\(markets):us"
         if let hit = await DataCache.shared.get(cacheKey, policy: .day) {
             return hit
         }
-        var components = URLComponents(
-            string: "\(base)/historical/sports/\(sport)/events/\(eventId)/odds"
-        )!
-        components.queryItems = [
-            URLQueryItem(name: "apiKey", value: apiKey),
-            URLQueryItem(name: "regions", value: "us"),
-            URLQueryItem(name: "markets", value: markets),
-            URLQueryItem(name: "oddsFormat", value: "american"),
-            URLQueryItem(name: "date", value: dateKey),
+        let path = "historical/sports/\(sport)/events/\(eventId)/odds"
+        let query = [
+            "regions": "us",
+            "markets": markets,
+            "oddsFormat": "american",
+            "date": dateKey,
         ]
-        let data = try await fetch(url: components.url!, historic: true)
+        let data = try await SidelinePublicClient.byokData(
+            path: "/v1/byok/odds/\(path)",
+            query: query,
+            vendorAPIKey: apiKey
+        ) {
+            var components = URLComponents(string: "\(self.base)/\(path)")!
+            components.queryItems = [
+                URLQueryItem(name: "apiKey", value: apiKey),
+                URLQueryItem(name: "regions", value: "us"),
+                URLQueryItem(name: "markets", value: markets),
+                URLQueryItem(name: "oddsFormat", value: "american"),
+                URLQueryItem(name: "date", value: dateKey),
+            ]
+            return try await self.fetch(url: components.url!, historic: true)
+        }
         await DataCache.shared.set(data, for: cacheKey, persistToDisk: true)
         return data
     }
 
     func clearCache() async {
-        await DataCache.shared.removeAll(matchingPrefix: "odds:")
+        if let user = KeychainStore.get(.appleUserID)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !user.isEmpty {
+            await DataCache.shared.removeAll(matchingPrefix: "odds:\(user):")
+        }
+        await DataCache.shared.removeAll(matchingPrefix: "odds:anonymous:")
+        // Legacy unscoped keys.
+        await DataCache.shared.removeAll(matchingPrefix: "odds:events:")
+        await DataCache.shared.removeAll(matchingPrefix: "odds:props:")
+        await DataCache.shared.removeAll(matchingPrefix: "odds:hist-")
     }
 
     private func fetch(url: URL, historic: Bool = false) async throws -> Data {
