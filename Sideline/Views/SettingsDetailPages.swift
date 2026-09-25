@@ -58,7 +58,6 @@ struct ThemeSettingsPage: View {
     @EnvironmentObject private var appState: AppState
     @AppStorage("sideline.appearance.darkMode") private var isDarkMode = false
     @AppStorage("sideline.liveActivity.enabled") private var liveActivityEnabled = false
-    @AppStorage("sideline.propsTab.visible") private var propsTabVisible = true
 
     var body: some View {
         SettingsPageChrome(title: "Appearance") {
@@ -83,36 +82,6 @@ struct ThemeSettingsPage: View {
                             .stroke(BrandTheme.hairline, lineWidth: 1)
                     )
             )
-
-            Toggle(isOn: $propsTabVisible) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Props tab")
-                        .font(BrandTheme.body(16, weight: .semibold))
-                        .foregroundStyle(BrandTheme.ink)
-                    Text(propsTabVisible
-                         ? "Shows player prop lines for your roster (Odds API)."
-                         : "Hidden from the tab bar. Turn on anytime — or from the Props empty state.")
-                        .font(BrandTheme.body(13))
-                        .foregroundStyle(BrandTheme.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .tint(BrandTheme.accent)
-            .padding(.horizontal, BrandTheme.pageGutterTight)
-            .padding(.vertical, BrandTheme.space(12))
-            .background(
-                RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
-                    .fill(BrandTheme.surface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
-                            .stroke(BrandTheme.hairline, lineWidth: 1)
-                    )
-            )
-            .onChange(of: propsTabVisible) { _, visible in
-                if !visible, appState.selectedTab == .props {
-                    appState.selectedTab = .team
-                }
-            }
 
             Toggle(isOn: $liveActivityEnabled) {
                 VStack(alignment: .leading, spacing: 4) {

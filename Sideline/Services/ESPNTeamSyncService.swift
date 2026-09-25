@@ -127,6 +127,13 @@ enum ESPNTeamSyncService {
             teamGames: teamGames
         )
 
+        let oppLineup = opponentRoster(
+            matchupRaw: matchupRaw,
+            myTeamId: teamId,
+            week: currentWeek,
+            teamGames: teamGames
+        )
+
         return TeamSnapshot(
             leagueId: linked.leagueId,
             franchiseId: linked.franchiseId,
@@ -138,6 +145,8 @@ enum ESPNTeamSyncService {
             bench: bench,
             ir: ir,
             taxi: [],
+            opponentStarters: oppLineup.starters,
+            opponentBench: oppLineup.bench,
             matchup: matchup,
             leagueRules: rules,
             scoringRules: scoringRules,
@@ -561,8 +570,82 @@ enum ESPNTeamSyncService {
             myScore: sideScore(mySide),
             oppScore: sideScore(oppSide),
             opponentName: oppName,
+            opponentFranchiseId: oppId.map(String.init),
             oppLivePlayerLines: oppLines
         )
+    }
+
+    private static func opponentRoster(
+        matchupRaw: Data?,
+        myTeamId: Int,
+        week: Int,
+        teamGames: [String: NFLGameInfo]
+    ) -> (starters: [RosterPlayer], bench: [RosterPlayer]) {
+        guard let matchupRaw,
+              let root = try? JSONSerialization.jsonObject(with: matchupRaw) as? [String: Any]
+        else { return ([], []) }
+        let schedule = root["schedule"] as? [[String: Any]] ?? []
+        guard let row = schedule.first(where: {
+            ESPNClient.intValue($0["matchupPeriodId"]) == week && sideContains(teamId: myTeamId, matchup: $0)
+        }) else { return ([], []) }
+
+        let homeId = sideTeamId(row["home"])
+        let mineIsHome = homeId == myTeamId
+        let oppSide = (mineIsHome ? row["away"] : row["home"]) as? [String: Any]
+        guard let oppSide else { return ([], []) }
+
+        let roster = (oppSide["rosterForCurrentScoringPeriod"] as? [String: Any])
+            ?? (oppSide["roster"] as? [String: Any])
+        let entries = roster?["entries"] as? [[String: Any]] ?? []
+
+        var starters: [RosterPlayer] = []
+        var bench: [RosterPlayer] = []
+        var starterOrder: [(slot: Int, player: RosterPlayer)] = []
+
+        for entry in entries {
+            let slot = ESPNClient.intValue(entry["lineupSlotId"]) ?? 20
+            let status = ESPNClient.rosterStatus(lineupSlotId: slot)
+            guard status == "starter" || status == "bench" else { continue }
+            let pool = entry["playerPoolEntry"] as? [String: Any]
+            let player = pool?["player"] as? [String: Any] ?? [:]
+            let pid = ESPNClient.intValue(entry["playerId"]).map(String.init)
+                ?? ESPNClient.intValue(player["id"]).map(String.init)
+                ?? ""
+            guard !pid.isEmpty else { continue }
+            let name = (player["fullName"] as? String) ?? "Player"
+            let pos = ESPNClient.positionName(defaultPositionId: ESPNClient.intValue(player["defaultPositionId"]))
+            let team = ESPNClient.nflTeamAbbrev(proTeamId: ESPNClient.intValue(player["proTeamId"]))
+            let injury = player["injuryStatus"] as? String
+            let actual = ESPNClient.doubleValue(pool?["appliedStatTotal"])
+            let projected = ESPNClient.doubleValue(pool?["appliedProjectedStatTotal"])
+                ?? projectedFromPlayerStats(pool)
+            let row = RosterPlayer(
+                playerId: pid,
+                name: name,
+                position: pos,
+                team: team,
+                status: status,
+                projectedPoints: projected,
+                actualPoints: actual,
+                seasonPoints: nil,
+                lastWeekPoints: nil,
+                opponent: nil,
+                injuryStatus: injury,
+                gameLockState: nil
+            )
+            if status == "starter" {
+                starterOrder.append((slot, row))
+            } else {
+                bench.append(row)
+            }
+        }
+
+        starters = starterOrder.sorted { $0.slot < $1.slot }.map(\.player)
+        starters = NFLScheduleService.annotate(starters, games: teamGames)
+        bench = NFLScheduleService.annotate(bench, games: teamGames)
+        starters = clearActualIfNotLive(starters)
+        bench = clearActualIfNotLive(bench)
+        return (starters, bench)
     }
 
     private static func oppLiveFantasyLines(

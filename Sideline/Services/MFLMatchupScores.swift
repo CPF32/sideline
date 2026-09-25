@@ -70,6 +70,7 @@ enum MFLMatchupScores {
                     myScore: pair.home.score,
                     oppScore: pair.away.score,
                     opponentName: pair.away.name,
+                    opponentFranchiseId: pair.away.id,
                     lineupDeadline: nil,
                     oppLivePlayerLines: livePlayerLines(from: liveScoring, franchiseId: pair.away.id)
                 )
@@ -80,6 +81,7 @@ enum MFLMatchupScores {
                     myScore: pair.away.score,
                     oppScore: pair.home.score,
                     opponentName: pair.home.name,
+                    opponentFranchiseId: pair.home.id,
                     lineupDeadline: nil,
                     oppLivePlayerLines: livePlayerLines(from: liveScoring, franchiseId: pair.home.id)
                 )

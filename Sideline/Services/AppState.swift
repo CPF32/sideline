@@ -25,8 +25,12 @@ final class AppState: ObservableObject {
     @Published var showSettings = false
     @Published var showConnect = false
     @Published var showAgents = false
+    /// Player IDs on the current roster that have Odds API props (for discrete $ marks).
+    @Published var playerIdsWithProps: Set<String> = []
     @Published var selectedTab: MainTab = .team
-    /// Deep-link into Settings (e.g. Props empty state → Odds API).
+    /// Lineup / Matchup swipe pane — drives the tab bar label.
+    @Published var teamRosterPane: MatchupRosterPane = .mine
+    /// Deep-link into Settings (e.g. empty Odds state → Odds API).
     @Published var settingsPath: [SettingsDestination] = []
     @Published var selectedWeek: Int = 1
     @Published var currentSeasonWeek: Int = 1
@@ -34,6 +38,7 @@ final class AppState: ObservableObject {
     @Published var seasonEndWeek: Int = 18
     /// Next few franchise matchups after the live NFL week (from full schedule).
     @Published var upcomingMatchups: [UpcomingMatchupPreview] = []
+    @Published var isLoadingUpcomingMatchups = false
     @Published var leagueReview: LeagueReviewSnapshot?
     @Published var isLoadingLeague = false
     /// Props tab Odds API refresh (drives SIDELINE title loading motion).
@@ -179,6 +184,7 @@ final class AppState: ObservableObject {
         team = nil
         leagueReview = nil
         upcomingMatchups = []
+        isLoadingUpcomingMatchups = false
         teamWeekSummary = nil
         leagueWeekSummary = nil
         statusMessage = "Switched to \(link.leagueName)"
@@ -208,6 +214,7 @@ final class AppState: ObservableObject {
             team = nil
             leagueReview = nil
             upcomingMatchups = []
+            isLoadingUpcomingMatchups = false
             teamWeekSummary = nil
             leagueWeekSummary = nil
             UserDefaults.standard.removeObject(forKey: Self.activeLeagueKey)
@@ -277,6 +284,8 @@ final class AppState: ObservableObject {
         team = nil
         linkedFranchise = nil
         linkedLeagues = []
+        playerIdsWithProps = []
+        teamRosterPane = .mine
         isSyncing = false
         isRunningAgent = false
         agentRunTitle = nil
@@ -297,6 +306,7 @@ final class AppState: ObservableObject {
         currentSeasonWeek = 1
         seasonEndWeek = 18
         upcomingMatchups = []
+        isLoadingUpcomingMatchups = false
         leagueReview = nil
         isLoadingLeague = false
         isLoadingProps = false
@@ -331,6 +341,9 @@ final class AppState: ObservableObject {
         }
         isSyncing = true
         errorMessage = nil
+        if upcomingMatchups.isEmpty {
+            isLoadingUpcomingMatchups = true
+        }
         defer { isSyncing = false }
 
         do {
@@ -454,6 +467,28 @@ final class AppState: ObservableObject {
             )
             updateLiveScorePolling(team: team)
         }
+        await refreshPropAvailabilityMarks()
+    }
+
+    /// Warm Odds props cache and publish which roster players have lines (team-page $ marks).
+    func refreshPropAvailabilityMarks() async {
+        guard let team else {
+            playerIdsWithProps = []
+            return
+        }
+        guard OddsAPIClient.hasAPIKey || ScreenshotDemo.isEnabled else {
+            playerIdsWithProps = []
+            return
+        }
+        let live = !isViewingHistoricWeek && DataCache.hasLiveGames(in: team)
+        await OddsIntelService.shared.ensureLoaded(
+            players: team.allRostered,
+            season: linkedFranchise?.season ?? Calendar.current.component(.year, from: .now),
+            week: team.week,
+            isHistoric: isViewingHistoricWeek,
+            hasLiveGames: live
+        )
+        playerIdsWithProps = await OddsIntelService.shared.playerIdsWithProps(from: team.allRostered)
     }
 
     /// Keep Lock Screen Live Activity fresh by polling host live scores while the app is open.
@@ -511,6 +546,8 @@ final class AppState: ObservableObject {
     }
 
     private func refreshUpcomingMatchups(linked: LinkedFranchise) async {
+        isLoadingUpcomingMatchups = true
+        defer { isLoadingUpcomingMatchups = false }
         do {
             let rows: [UpcomingMatchupPreview]
             if linked.isSleeper {
@@ -914,6 +951,7 @@ final class AppState: ObservableObject {
         team = nil
         leagueReview = nil
         upcomingMatchups = []
+        isLoadingUpcomingMatchups = false
         teamWeekSummary = nil
         leagueWeekSummary = nil
         refreshLinkedLeagues()
@@ -1546,6 +1584,21 @@ final class AppState: ObservableObject {
         let taxi = [
             player(id: "14", name: "Rome Odunze", pos: "WR", team: "CHI", status: "taxi", proj: 9.1, opp: "vs IND", salary: 2_800_000)
         ]
+        let oppStarters = [
+            player(id: "o1", name: "Josh Allen", pos: "QB", team: "BUF", status: "starter", proj: 21.8, opp: "vs MIA", salary: 30_000_000),
+            player(id: "o2", name: "Bijan Robinson", pos: "RB", team: "ATL", status: "starter", proj: 17.9, opp: "@CAR", salary: 16_000_000),
+            player(id: "o3", name: "Kyren Williams", pos: "RB", team: "LAR", status: "starter", proj: 14.6, opp: "BYE", salary: 8_000_000),
+            player(id: "o4", name: "Tyreek Hill", pos: "WR", team: "MIA", status: "starter", proj: 15.4, opp: "@BUF", salary: 20_000_000),
+            player(id: "o5", name: "Nico Collins", pos: "WR", team: "HOU", status: "starter", proj: 14.1, opp: "vs IND", salary: 12_000_000),
+            player(id: "o6", name: "DJ Moore", pos: "WR", team: "CHI", status: "starter", proj: 12.8, opp: "vs IND", salary: 11_000_000),
+            player(id: "o7", name: "Sam LaPorta", pos: "TE", team: "DET", status: "starter", proj: 11.2, opp: "vs SEA", salary: 7_000_000),
+            player(id: "o8", name: "David Montgomery", pos: "RB", team: "DET", status: "starter", proj: 12.1, opp: "vs SEA", salary: 6_500_000),
+            player(id: "o9", name: "Harrison Butker", pos: "PK", team: "KC", status: "starter", proj: 8.0, opp: "@LAC", salary: 3_000_000)
+        ]
+        let oppBench = [
+            player(id: "o10", name: "Jordan Love", pos: "QB", team: "GB", status: "bench", proj: 17.2, opp: "@MIN", salary: 9_000_000),
+            player(id: "o11", name: "Zay Flowers", pos: "WR", team: "BAL", status: "bench", proj: 11.0, opp: "vs CLE", salary: 7_500_000)
+        ]
         let rostered = starters + bench + ir + taxi
         let totalSalary = rostered.compactMap(\.salary).reduce(0, +)
 
@@ -1560,11 +1613,14 @@ final class AppState: ObservableObject {
             bench: bench,
             ir: ir,
             taxi: taxi,
+            opponentStarters: oppStarters,
+            opponentBench: oppBench,
             matchup: MatchupSnapshot(
                 week: 6,
                 myScore: 88.4,
                 oppScore: 81.2,
                 opponentName: "Gridiron Guild",
+                opponentFranchiseId: "0002",
                 lineupDeadline: nil
             ),
             leagueRules: rules,
@@ -1634,8 +1690,8 @@ final class AppState: ObservableObject {
         showConnect = false
         errorMessage = nil
 
-        // Props tab: deterministic lines without touching the real Odds API keychain slot.
-        UserDefaults.standard.set(true, forKey: "sideline.propsTab.visible")
+        // Deterministic props for App Store captures — also drives team-page $ marks.
         await OddsIntelService.shared.seedScreenshotDemo(players: starters + bench, season: linked.season, week: 6)
+        playerIdsWithProps = await OddsIntelService.shared.playerIdsWithProps(from: starters + bench)
     }
 }

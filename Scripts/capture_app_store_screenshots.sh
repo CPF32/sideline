@@ -120,15 +120,20 @@ capture() {
   xcrun simctl launch "$UDID" "$BUNDLE_ID" \
     -ScreenshotDemo \
     -ScreenshotTab "$tab" >/dev/null
-  sleep 3.5
+  # Matchup needs an extra beat for the TabView swipe pane to settle.
+  if [ "$tab" = "matchup" ]; then
+    sleep 4.5
+  else
+    sleep 3.5
+  fi
   xcrun simctl io "$UDID" screenshot "$OUT/$file"
   sips -z "$TARGET_HEIGHT" "$TARGET_WIDTH" "$OUT/$file" --out "$OUT/$file" >/dev/null
 }
 
-capture team "01-team.png"
-capture league "02-league.png"
-capture props "03-props.png"
-capture agents "04-agents.png"
+capture lineup "01-lineup.png"
+capture matchup "02-matchup.png"
+capture league "03-league.png"
+capture desk "04-desk.png"
 capture settings "05-settings.png"
 
 xcrun simctl status_bar "$UDID" clear >/dev/null 2>&1 || true

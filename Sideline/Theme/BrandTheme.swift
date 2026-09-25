@@ -45,6 +45,8 @@ enum BrandTheme {
     static let danger = Color.adaptive(light: "B33A2E", dark: "F07166")
     static let standingsUp = Color.adaptive(light: "2F7D4A", dark: "6DD492")
     static let standingsDown = Color.adaptive(light: "B33A2E", dark: "F07166")
+    /// Discrete “props available” mark on roster rows (true green — not lime accent).
+    static let propsMark = Color.adaptive(light: "1F8A4C", dark: "3DCF7A")
     static let hairline = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor.white.withAlphaComponent(0.22)

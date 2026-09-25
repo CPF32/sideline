@@ -154,7 +154,9 @@ enum LeagueStrengthService {
             var byPos: [String: [(name: String, pts: Double)]] = [:]
             for p in active {
                 let pos = normalizePos(p.position)
-                guard slotsNeeded[pos] != nil || RosterPositionGrouping.positionOrder.contains(pos) else { continue }
+                guard slotsNeeded[pos] != nil
+                        || RosterPositionGrouping.displayPositionOrder(rules: rules).contains(pos)
+                else { continue }
                 let pts = scoreMap[p.playerId] ?? scoreMap[MFLNameResolver.normalizePlayerId(p.playerId)] ?? 0
                 byPos[pos, default: []].append((p.name, pts))
             }
@@ -178,7 +180,11 @@ enum LeagueStrengthService {
             MFLNameResolver.normalizeFranchiseId($0) == MFLNameResolver.normalizeFranchiseId(myFranchiseId)
         } ?? myFranchiseId
 
-        let positionsToRate = orderedPositions(slotsNeeded: slotsNeeded, myScores: franchiseScores[myKey] ?? [:])
+        let positionsToRate = orderedPositions(
+            slotsNeeded: slotsNeeded,
+            myScores: franchiseScores[myKey] ?? [:],
+            rules: rules
+        )
         var rows: [PositionalStrengthRow] = []
         for pos in positionsToRate {
             var teamVals: [(String, Double)] = []
@@ -254,10 +260,14 @@ enum LeagueStrengthService {
         return needs
     }
 
-    private static func orderedPositions(slotsNeeded: [String: Int], myScores: [String: Double]) -> [String] {
+    private static func orderedPositions(
+        slotsNeeded: [String: Int],
+        myScores: [String: Double],
+        rules: LeagueRules?
+    ) -> [String] {
         var keys = Set(slotsNeeded.keys).union(myScores.keys)
         var ordered: [String] = []
-        for p in RosterPositionGrouping.positionOrder where keys.contains(p) {
+        for p in RosterPositionGrouping.displayPositionOrder(rules: rules) where keys.contains(p) {
             ordered.append(p)
             keys.remove(p)
         }

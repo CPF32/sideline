@@ -134,6 +134,7 @@ enum TeamSyncService {
         bench = applyActualPoints(bench, actuals: actualMap)
         ir = applyActualPoints(ir, actuals: actualMap)
         taxi = applyActualPoints(taxi, actuals: actualMap)
+        starters = RosterPositionGrouping.startersInDisplayOrder(starters, rules: leagueRules)
 
         let matchup = MFLMatchupScores.snapshot(
             for: franchiseId,
@@ -143,6 +144,25 @@ enum TeamSyncService {
             week: currentWeek,
             names: franchiseNames
         )
+
+        var opponentStarters: [RosterPlayer] = []
+        var opponentBench: [RosterPlayer] = []
+        if let oppId = matchup.opponentFranchiseId {
+            let oppLineup = opponentWeekLineup(
+                franchiseId: oppId,
+                weeklyResults: weeklyResults,
+                liveScoring: liveScoring,
+                players: playerMap,
+                projections: projMap,
+                injuries: injuryMap,
+                rules: leagueRules
+            )
+            opponentStarters = NFLScheduleService.annotate(oppLineup.starters, games: teamGames)
+            opponentBench = NFLScheduleService.annotate(oppLineup.bench, games: teamGames)
+            opponentStarters = applyActualPoints(opponentStarters, actuals: actualMap)
+            opponentBench = applyActualPoints(opponentBench, actuals: actualMap)
+        }
+
         let seasonPF = standings.flatMap { parseSeasonPointsFor($0, franchiseId: franchiseId) }
         let all = starters + bench + ir + taxi
         let salaryValues = all.compactMap(\.salary)
@@ -159,6 +179,8 @@ enum TeamSyncService {
             bench: bench,
             ir: ir,
             taxi: taxi,
+            opponentStarters: opponentStarters,
+            opponentBench: opponentBench,
             matchup: matchup,
             leagueRules: leagueRules,
             scoringRules: scoringRules,
@@ -409,6 +431,116 @@ enum TeamSyncService {
             guard let score = actuals[nid] ?? actuals[player.playerId] else { return player }
             return player.replacing(actualPoints: score)
         }
+    }
+
+    /// Opponent starters/bench for the Matchup swipe panes (weeklyResults, else liveScoring DETAILS).
+    private static func opponentWeekLineup(
+        franchiseId: String,
+        weeklyResults: Data?,
+        liveScoring: Data?,
+        players: [String: (name: String, pos: String, team: String)],
+        projections: [String: Double],
+        injuries: [String: String],
+        rules: LeagueRules?
+    ) -> (starters: [RosterPlayer], bench: [RosterPlayer]) {
+        if let weeklyResults,
+           let statuses = parseWeeklyPlayerStatuses(weeklyResults, franchiseId: franchiseId),
+           !statuses.isEmpty {
+            return playersFromStatuses(
+                statuses,
+                players: players,
+                projections: projections,
+                injuries: injuries,
+                rules: rules
+            )
+        }
+        if let liveScoring,
+           let statuses = parseLivePlayerStatuses(liveScoring, franchiseId: franchiseId),
+           !statuses.isEmpty {
+            return playersFromStatuses(
+                statuses,
+                players: players,
+                projections: projections,
+                injuries: injuries,
+                rules: rules
+            )
+        }
+        return ([], [])
+    }
+
+    private static func playersFromStatuses(
+        _ statuses: [String: String],
+        players: [String: (name: String, pos: String, team: String)],
+        projections: [String: Double],
+        injuries: [String: String],
+        rules: LeagueRules?
+    ) -> (starters: [RosterPlayer], bench: [RosterPlayer]) {
+        var starters: [RosterPlayer] = []
+        var bench: [RosterPlayer] = []
+        for (id, status) in statuses {
+            let nid = MFLNameResolver.normalizePlayerId(id)
+            let meta = players[id] ?? players[nid]
+            let player = RosterPlayer(
+                playerId: id,
+                name: meta?.name ?? id,
+                position: meta?.pos ?? "",
+                team: meta?.team ?? "",
+                status: status,
+                projectedPoints: projections[id] ?? projections[nid],
+                opponent: nil,
+                injuryStatus: injuries[id] ?? injuries[nid]
+            )
+            if status == "starter" {
+                starters.append(player)
+            } else if status != "ir" && status != "taxi" {
+                bench.append(player)
+            }
+        }
+        starters = RosterPositionGrouping.startersInDisplayOrder(starters, rules: rules)
+        bench.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        return (starters, bench)
+    }
+
+    /// Live-scoring player status map for one franchise (`starter` / `bench`).
+    private static func parseLivePlayerStatuses(
+        _ data: Data,
+        franchiseId: String
+    ) -> [String: String]? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        let live = (root["liveScoring"] as? [String: Any]) ?? root
+        let want = MFLNameResolver.normalizeFranchiseId(franchiseId)
+
+        func statuses(from franchise: [String: Any]) -> [String: String] {
+            let playersNode = franchise["players"] as? [String: Any]
+            let rows = arrayOfDicts(playersNode?["player"] ?? franchise["player"])
+            var map: [String: String] = [:]
+            for row in rows {
+                guard let id = row["id"] as? String ?? (row["id"] as? Int).map(String.init) else { continue }
+                let code = (row["status"] as? String) ?? ""
+                let status = statusFromCode(code)
+                guard status == "starter" || status == "bench" else { continue }
+                map[id] = status
+            }
+            return map
+        }
+
+        for matchup in arrayOfDicts(live["matchup"]) {
+            for franchise in arrayOfDicts(matchup["franchise"]) {
+                let id = MFLNameResolver.normalizeFranchiseId((franchise["id"] as? String) ?? "")
+                if id == want {
+                    let map = statuses(from: franchise)
+                    if !map.isEmpty { return map }
+                }
+            }
+        }
+        for franchise in arrayOfDicts(live["franchise"]) {
+            let id = MFLNameResolver.normalizeFranchiseId((franchise["id"] as? String) ?? "")
+            if id == want {
+                let map = statuses(from: franchise)
+                if !map.isEmpty { return map }
+            }
+        }
+        return nil
     }
 
     private static func parseRoster(
@@ -760,6 +892,7 @@ enum TeamSyncService {
                 myScore: mine?.score,
                 oppScore: opp?.score,
                 opponentName: oppName,
+                opponentFranchiseId: opp?.id,
                 lineupDeadline: nil
             )
         }

@@ -131,6 +131,14 @@ enum SleeperTeamSyncService {
             teamGames: teamGames
         )
 
+        let oppRosterBundle = await opponentRoster(
+            matchupsRaw: matchupsRaw,
+            rosterId: rosterId,
+            rosters: parseRosters(rostersRaw),
+            projMap: projMap,
+            teamGames: teamGames
+        )
+
         let fpts = myRoster.settings["fpts"] as? Double
             ?? (myRoster.settings["fpts"] as? Int).map(Double.init)
 
@@ -145,6 +153,8 @@ enum SleeperTeamSyncService {
             bench: bench,
             ir: ir,
             taxi: taxi,
+            opponentStarters: oppRosterBundle.starters,
+            opponentBench: oppRosterBundle.bench,
             matchup: matchup,
             leagueRules: LeagueRules(
                 rosterSize: allIds.count,
@@ -535,8 +545,66 @@ enum SleeperTeamSyncService {
             myScore: mine.points,
             oppScore: opp?.points,
             opponentName: oppName,
+            opponentFranchiseId: opp.map { String($0.rosterId) },
             oppLivePlayerLines: oppLines
         )
+    }
+
+    /// Opponent starters + bench for Matchup swipe panes.
+    private static func opponentRoster(
+        matchupsRaw: Data?,
+        rosterId: Int,
+        rosters: [SleeperRoster],
+        projMap: [String: Double],
+        teamGames: [String: NFLGameInfo]
+    ) async -> (starters: [RosterPlayer], bench: [RosterPlayer]) {
+        guard let matchupsRaw else { return ([], []) }
+        let rows = parseMatchups(matchupsRaw)
+        guard let mine = rows.first(where: { $0.rosterId == rosterId }),
+              let mid = mine.matchupId,
+              let opp = rows.first(where: { $0.matchupId == mid && $0.rosterId != rosterId }),
+              let oppRoster = rosters.first(where: { $0.rosterId == opp.rosterId })
+        else { return ([], []) }
+
+        let starterIds = oppRoster.starters.filter { $0 != "0" && !$0.isEmpty }
+        let starterSet = Set(starterIds)
+        let reserveIds = Set(oppRoster.reserve)
+        let taxiIds = Set(oppRoster.taxi)
+
+        var starters: [RosterPlayer] = []
+        var bench: [RosterPlayer] = []
+
+        for pid in oppRoster.players {
+            if reserveIds.contains(pid) || taxiIds.contains(pid) { continue }
+            let record = await SleeperPlayerCatalog.shared.player(id: pid)
+            let status = starterSet.contains(pid) ? "starter" : "bench"
+            let player = RosterPlayer(
+                playerId: pid,
+                name: record?.fullName ?? "Player \(pid)",
+                position: record?.position ?? "?",
+                team: record?.team ?? "",
+                status: status,
+                projectedPoints: projMap[pid],
+                actualPoints: opp.playersPoints[pid],
+                seasonPoints: nil,
+                lastWeekPoints: nil,
+                opponent: nil,
+                injuryStatus: record?.injuryStatus,
+                gameLockState: nil
+            )
+            if status == "starter" {
+                starters.append(player)
+            } else {
+                bench.append(player)
+            }
+        }
+
+        starters = starterIds.compactMap { id in starters.first { $0.playerId == id } }
+        starters = NFLScheduleService.annotate(starters, games: teamGames)
+        bench = NFLScheduleService.annotate(bench, games: teamGames)
+        starters = clearActualIfNotLive(starters)
+        bench = clearActualIfNotLive(bench)
+        return (starters, bench)
     }
 
     /// Opponent starters whose NFL game is in progress.

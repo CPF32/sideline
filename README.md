@@ -83,7 +83,7 @@ Raw simulator captures and connected marketing frames live under `AppStoreScreen
 - **Marketing (upload these):** `AppStoreScreenshots/marketing/6.7-inch/` — mist/lime device frames and a lime ribbon that continues across the five-slide story (`Your desk.` → `The board.` → `The lines.` → `On tap.` → `Your model.`)
 - **Preview strip:** `AppStoreScreenshots/marketing/6.7-inch/_series-preview.png` (do not upload)
 
-Launch args for deterministic shots: `-ScreenshotDemo` and `-ScreenshotTab <team|league|props|agents|settings>`. Edit copy and layout in `Scripts/compose_marketing_screenshots.py`.
+Launch args for deterministic shots: `-ScreenshotDemo` and `-ScreenshotTab <lineup|matchup|league|desk|settings>`. Edit copy and layout in `Scripts/compose_marketing_screenshots.py`.
 
 ## Privacy & control
 

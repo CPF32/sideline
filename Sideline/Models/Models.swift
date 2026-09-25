@@ -262,6 +262,8 @@ struct MatchupSnapshot: Hashable, Codable {
     var myScore: Double?
     var oppScore: Double?
     var opponentName: String?
+    /// Host franchise / roster id for the opponent (MFL franchise, Sleeper roster_id, ESPN teamId).
+    var opponentFranchiseId: String? = nil
     var lineupDeadline: Date?
     /// Opponent starters in active NFL games — `Name  12.3` for Live Activity cycling.
     var oppLivePlayerLines: [String] = []
@@ -287,6 +289,9 @@ struct TeamSnapshot: Hashable, Codable {
     var bench: [RosterPlayer]
     var ir: [RosterPlayer]
     var taxi: [RosterPlayer]
+    /// Opponent week lineup for the Matchup swipe panes.
+    var opponentStarters: [RosterPlayer] = []
+    var opponentBench: [RosterPlayer] = []
     var matchup: MatchupSnapshot?
     var leagueRules: LeagueRules?
     /// Point values from the host (MFL rules / Sleeper scoring_settings / ESPN scoringItems).
@@ -298,6 +303,29 @@ struct TeamSnapshot: Hashable, Codable {
     var allRostered: [RosterPlayer] { starters + bench + ir + taxi }
 
     var salaryCap: Double? { leagueRules?.salaryCapAmount }
+
+    /// Projected starter totals (sum of available projections).
+    var myProjectedStarterTotal: Double? {
+        Self.projectedTotal(starters)
+    }
+
+    var oppProjectedStarterTotal: Double? {
+        Self.projectedTotal(opponentStarters)
+    }
+
+    private static func projectedTotal(_ players: [RosterPlayer]) -> Double? {
+        let values = players.compactMap(\.projectedPoints)
+        guard !values.isEmpty else { return nil }
+        return values.reduce(0, +)
+    }
+}
+
+/// Swipe panes on the Team tab (left = my team, right = matchup).
+enum MatchupRosterPane: Int, CaseIterable, Identifiable {
+    case mine = 0
+    case matchup = 1
+
+    var id: Int { rawValue }
 }
 
 /// Compact money labels: 4_500_000 → "$4.5M", 750_000 → "$750K".

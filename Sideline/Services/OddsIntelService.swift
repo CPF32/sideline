@@ -441,6 +441,17 @@ actor OddsIntelService {
         return []
     }
 
+    /// Roster player IDs that currently have at least one matched prop line.
+    func playerIdsWithProps(from players: [RosterPlayer]) async -> Set<String> {
+        var ids = Set<String>()
+        for player in players {
+            if !(await props(for: player)).isEmpty {
+                ids.insert(player.playerId)
+            }
+        }
+        return ids
+    }
+
     func props(forPlayerName name: String, position: String = "") -> [OddsPlayerProp] {
         matchProps(name: Self.normalizePersonName(name), position: position)
     }

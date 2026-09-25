@@ -2,7 +2,6 @@ import SwiftUI
 
 struct AnalysisView: View {
     @EnvironmentObject private var appState: AppState
-    @AppStorage("sideline.propsTab.visible") private var propsTabVisible = true
     @State private var insights: [OddsRosterInsight] = []
     @State private var status: String?
     @State private var isError = false
@@ -101,20 +100,7 @@ struct AnalysisView: View {
             .buttonStyle(PrimaryButtonStyle())
             .padding(.horizontal, BrandTheme.space(40))
 
-            Button {
-                propsTabVisible = false
-                if appState.selectedTab == .props {
-                    appState.selectedTab = .team
-                }
-            } label: {
-                Text("Hide Props tab")
-                    .font(BrandTheme.body(14, weight: .semibold))
-                    .foregroundStyle(BrandTheme.muted)
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 4)
-
-            Text("You can turn it back on in Settings → Appearance.")
+            Text("Props stay available on each player profile when a key is set.")
                 .font(BrandTheme.body(12))
                 .foregroundStyle(BrandTheme.muted.opacity(0.85))
                 .multilineTextAlignment(.center)

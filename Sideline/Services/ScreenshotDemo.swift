@@ -2,7 +2,9 @@ import Foundation
 import SwiftData
 
 /// Launch-arg helpers for App Store marketing screenshots.
-/// Pass `-ScreenshotDemo` and optionally `-ScreenshotTab <team|league|props|agents|settings>`.
+/// Pass `-ScreenshotDemo` and optionally
+/// `-ScreenshotTab <lineup|matchup|league|desk|settings>`
+/// (legacy: `team`, `props`, `agents` still accepted).
 enum ScreenshotDemo {
     static let demoLeagueId = "99999"
     static let demoHost = "www64.myfantasyleague.com"
@@ -13,19 +15,30 @@ enum ScreenshotDemo {
         ProcessInfo.processInfo.arguments.contains("-ScreenshotDemo")
     }
 
-    static var preferredTab: MainTab? {
+    /// Tab + optional Lineup/Matchup swipe pane for the first tab.
+    static var preferredDestination: (tab: MainTab, pane: MatchupRosterPane?)? {
         let args = ProcessInfo.processInfo.arguments
         guard let index = args.firstIndex(of: "-ScreenshotTab"),
               args.indices.contains(index + 1) else { return nil }
         switch args[index + 1].lowercased() {
-        case "team": return .team
-        case "league": return .league
-        case "props", "analysis": return .props
-        case "agents": return .agents
-        case "settings": return .settings
-        // Legacy: approvals is a sheet, not a tab — land on Team.
-        case "approvals": return .team
-        default: return nil
+        case "lineup", "team":
+            return (.team, .mine)
+        case "matchup":
+            return (.team, .matchup)
+        case "league":
+            return (.league, nil)
+        case "desk", "agents":
+            return (.agents, nil)
+        case "settings":
+            return (.settings, nil)
+        // Legacy: props tab removed — land on Matchup (props live on player profiles).
+        case "props", "analysis":
+            return (.team, .matchup)
+        // Legacy: approvals is a sheet, not a tab.
+        case "approvals":
+            return (.team, .mine)
+        default:
+            return nil
         }
     }
 
@@ -33,8 +46,11 @@ enum ScreenshotDemo {
     static func applyIfNeeded(appState: AppState, context: ModelContext) async {
         if isEnabled {
             await appState.applyScreenshotDemo(context: context)
-            if let tab = preferredTab {
-                appState.selectedTab = tab
+            if let dest = preferredDestination {
+                appState.selectedTab = dest.tab
+                if let pane = dest.pane {
+                    appState.teamRosterPane = pane
+                }
             }
             return
         }

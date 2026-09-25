@@ -4,7 +4,7 @@ import SwiftData
 struct RootView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.modelContext) private var modelContext
-    /// Screenshot runs seed async — hold the tab UI until demo data (incl. props) is ready.
+    /// Screenshot runs seed async — hold the tab UI until demo data is ready.
     @State private var isScreenshotReady = !ScreenshotDemo.isEnabled
 
     var body: some View {
