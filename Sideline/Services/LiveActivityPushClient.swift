@@ -43,6 +43,10 @@ enum LiveActivityPushClient {
         let opponentName: String?
         let playerNames: [String: String]?
         let starterIds: [String]?
+        /// Starters whose NFL game is in progress — ticker / push lines use only these.
+        let liveStarterIds: [String]?
+        let leagueLinkId: String?
+        let leagueCount: Int?
         /// "sandbox" for Xcode/dev installs; "production" for TestFlight / App Store.
         let apnsEnvironment: String
     }

@@ -9,8 +9,10 @@ enum LiveActivityManager {
     static let enabledKey = "sideline.liveActivity.enabled"
 
     private static var tokenTasks: [String: Task<Void, Never>] = [:]
+    private static var lastPushTokens: [String: String] = [:]
     private static var lastLinked: LinkedFranchise?
     private static var lastSnapshot: TeamSnapshot?
+    private static var leagueCount: Int = 1
 
     static var isEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: enabledKey) }
@@ -21,10 +23,18 @@ enum LiveActivityManager {
         ActivityAuthorizationInfo().areActivitiesEnabled
     }
 
+    /// Keep the cycle control accurate when the hub has multiple leagues.
+    static func setLinkedLeagueCount(_ count: Int) {
+        leagueCount = max(1, count)
+    }
+
     /// Call after each successful team sync.
-    static func sync(from snapshot: TeamSnapshot, linked: LinkedFranchise) {
+    static func sync(from snapshot: TeamSnapshot, linked: LinkedFranchise, linkedLeagueCount: Int? = nil) {
         lastSnapshot = snapshot
         lastLinked = linked
+        if let linkedLeagueCount {
+            leagueCount = max(1, linkedLeagueCount)
+        }
 
         guard isEnabled, areActivitiesSupported else {
             Task { await endAll() }
@@ -61,29 +71,74 @@ enum LiveActivityManager {
 
         Task {
             if let existing = Activity<MatchupLiveAttributes>.activities.first {
-                await existing.update(
-                    ActivityContent(
-                        state: keepingSyncTimer(state, from: existing),
-                        staleDate: Date().addingTimeInterval(180)
-                    )
-                )
-                if usePush {
-                    observePushToken(activity: existing, snapshot: snapshot, linked: linked)
-                }
-            } else {
-                do {
-                    let activity = try Activity.request(
+                let previousLink = existing.content.state.leagueLinkId
+                let attrs = existing.attributes
+                let leagueChanged =
+                    (!previousLink.isEmpty && previousLink != linked.id)
+                    || (previousLink.isEmpty && (
+                        attrs.leagueName != linked.leagueName
+                            || attrs.providerLabel != linked.provider.shortName
+                    ))
+                if leagueChanged {
+                    // Attributes are immutable — end + restart so team/league labels
+                    // can't stay locked on the previous franchise after a switch.
+                    tokenTasks[existing.id]?.cancel()
+                    tokenTasks[existing.id] = nil
+                    lastPushTokens[existing.id] = nil
+                    await LiveActivityPushClient.unregister(activityId: existing.id)
+                    await existing.end(nil, dismissalPolicy: .immediate)
+                    await startActivity(
                         attributes: attributes,
-                        content: ActivityContent(state: state, staleDate: Date().addingTimeInterval(180)),
-                        pushType: usePush ? .token : nil
+                        state: state,
+                        usePush: usePush,
+                        snapshot: snapshot,
+                        linked: linked
+                    )
+                } else {
+                    await existing.update(
+                        ActivityContent(
+                            state: state,
+                            staleDate: Date().addingTimeInterval(MatchupLiveSyncSchedule.intervalSeconds + 60)
+                        )
                     )
                     if usePush {
-                        observePushToken(activity: activity, snapshot: snapshot, linked: linked)
+                        observePushToken(activity: existing, snapshot: snapshot, linked: linked)
+                        await reregisterIfPossible(activityId: existing.id, snapshot: snapshot, linked: linked)
                     }
-                } catch {
-                    // Soft fail — Live Activities may be disabled in Focus / Low Power.
                 }
+            } else {
+                await startActivity(
+                    attributes: attributes,
+                    state: state,
+                    usePush: usePush,
+                    snapshot: snapshot,
+                    linked: linked
+                )
             }
+        }
+    }
+
+    private static func startActivity(
+        attributes: MatchupLiveAttributes,
+        state: MatchupLiveAttributes.ContentState,
+        usePush: Bool,
+        snapshot: TeamSnapshot,
+        linked: LinkedFranchise
+    ) async {
+        do {
+            let activity = try Activity.request(
+                attributes: attributes,
+                content: ActivityContent(
+                    state: state,
+                    staleDate: Date().addingTimeInterval(MatchupLiveSyncSchedule.intervalSeconds + 60)
+                ),
+                pushType: usePush ? .token : nil
+            )
+            if usePush {
+                observePushToken(activity: activity, snapshot: snapshot, linked: linked)
+            }
+        } catch {
+            // Soft fail — Live Activities may be disabled in Focus / Low Power.
         }
     }
 
@@ -94,6 +149,7 @@ enum LiveActivityManager {
             await LiveActivityPushClient.unregister(activityId: id)
         }
         tokenTasks.removeAll()
+        lastPushTokens.removeAll()
         for activity in Activity<MatchupLiveAttributes>.activities {
             await LiveActivityPushClient.unregister(activityId: activity.id)
             await activity.end(nil, dismissalPolicy: .immediate)
@@ -110,6 +166,7 @@ enum LiveActivityManager {
             for await tokenData in activity.pushTokenUpdates {
                 guard !Task.isCancelled else { break }
                 let hex = Self.hex(tokenData)
+                lastPushTokens[activity.id] = hex
                 let snap = lastSnapshot ?? snapshot
                 let link = lastLinked ?? linked
                 await registerPush(
@@ -122,6 +179,22 @@ enum LiveActivityManager {
         }
     }
 
+    /// Re-POSTs the last known token on every sync so the Worker session stays fresh
+    /// even if the token stream already yielded and the app was backgrounded.
+    private static func reregisterIfPossible(
+        activityId: String,
+        snapshot: TeamSnapshot,
+        linked: LinkedFranchise
+    ) async {
+        guard let hex = lastPushTokens[activityId] else { return }
+        await registerPush(
+            activityId: activityId,
+            tokenHex: hex,
+            snapshot: snapshot,
+            linked: linked
+        )
+    }
+
     private static func registerPush(
         activityId: String,
         tokenHex: String,
@@ -129,8 +202,9 @@ enum LiveActivityManager {
         linked: LinkedFranchise
     ) async {
         let starters = snapshot.starters
+        let liveStarters = starters.filter { $0.gameLockState == "started" }
         var names: [String: String] = [:]
-        for p in starters {
+        for p in liveStarters {
             names[p.playerId] = p.name
         }
         let payload = LiveActivityPushClient.RegisterPayload(
@@ -149,6 +223,9 @@ enum LiveActivityManager {
             opponentName: snapshot.matchup?.opponentName,
             playerNames: names,
             starterIds: starters.map(\.playerId),
+            liveStarterIds: liveStarters.map(\.playerId),
+            leagueLinkId: linked.id,
+            leagueCount: leagueCount,
             apnsEnvironment: LiveActivityPushClient.apnsEnvironment
         )
         await LiveActivityPushClient.register(payload)
@@ -158,24 +235,11 @@ enum LiveActivityManager {
         for activity in Activity<MatchupLiveAttributes>.activities {
             await activity.update(
                 ActivityContent(
-                    state: keepingSyncTimer(state, from: activity),
-                    staleDate: Date().addingTimeInterval(120)
+                    state: state,
+                    staleDate: Date().addingTimeInterval(MatchupLiveSyncSchedule.intervalSeconds + 60)
                 )
             )
         }
-    }
-
-    /// Local (foreground) updates don't know the backend schedule, so carry over the
-    /// last pushed next-sync time to keep the countdown running.
-    private static func keepingSyncTimer(
-        _ state: MatchupLiveAttributes.ContentState,
-        from activity: Activity<MatchupLiveAttributes>
-    ) -> MatchupLiveAttributes.ContentState {
-        var state = state
-        if let next = activity.content.state.nextSyncAt, next > Date().timeIntervalSince1970 {
-            state.nextSyncAt = next
-        }
-        return state
     }
 
     private static func contentState(
@@ -186,13 +250,21 @@ enum LiveActivityManager {
         let my = snapshot.matchup?.myScore ?? 0
         let opp = snapshot.matchup?.oppScore ?? 0
         let oppName = snapshot.matchup?.opponentName ?? "Opponent"
+        let now = Date()
 
+        // Only currently-playing starters — never upcoming / final with leftover points.
         let lines: [String] = liveStarters
+            .filter { $0.gameLockState == "started" }
             .sorted { ($0.actualPoints ?? 0) > ($1.actualPoints ?? 0) }
-            .prefix(4)
+            .prefix(10)
             .map { player in
                 let pts = player.actualPoints.map { String(format: "%.1f", $0) } ?? "—"
-                let clock = player.gameStatusLabel ?? "LIVE"
+                let clock: String = {
+                    if let secs = player.gameSecondsRemaining, secs > 0 {
+                        return String(format: "%d:%02d", secs / 60, secs % 60)
+                    }
+                    return "LIVE"
+                }()
                 return "\(player.name)  \(pts)  ·  \(clock)"
             }
 
@@ -207,6 +279,8 @@ enum LiveActivityManager {
             status = "Week \(snapshot.week) · \(linked.provider.shortName)"
         }
 
+        let teamName = snapshot.franchiseName.isEmpty ? linked.franchiseName : snapshot.franchiseName
+
         return MatchupLiveAttributes.ContentState(
             myScore: my,
             oppScore: opp,
@@ -214,7 +288,13 @@ enum LiveActivityManager {
             week: snapshot.week,
             statusLine: status,
             playerLines: lines,
-            lastUpdated: Date().timeIntervalSince1970
+            lastUpdated: now.timeIntervalSince1970,
+            nextSyncAt: MatchupLiveSyncSchedule.nextSyncAt(after: now),
+            leagueName: linked.leagueName,
+            myTeamName: teamName,
+            providerLabel: linked.provider.shortName,
+            leagueLinkId: linked.id,
+            leagueCount: leagueCount
         )
     }
 

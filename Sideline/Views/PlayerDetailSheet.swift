@@ -135,10 +135,6 @@ struct PlayerDetailSheet: View {
                     Text(status)
                         .font(BrandTheme.mono(11, weight: .semibold))
                         .foregroundStyle(BrandTheme.ink.opacity(0.65))
-                } else if player.gameLockState == "upcoming" {
-                    Text("UPCOMING")
-                        .font(BrandTheme.body(11, weight: .semibold))
-                        .foregroundStyle(BrandTheme.ink.opacity(0.65))
                 }
             }
             if let injury = player.injuryStatus ?? detail?.injury, !injury.isEmpty {
@@ -192,7 +188,19 @@ struct PlayerDetailSheet: View {
                         .font(BrandTheme.body(12))
                         .foregroundStyle(BrandTheme.muted)
                 }
+                if let status = player.gameStatusLabel {
+                    stripKV(weekStatusLabel(for: lock), status)
+                }
             }
+        }
+    }
+
+    private func weekStatusLabel(for lock: String) -> String {
+        switch lock {
+        case "started": return "Clock"
+        case "final": return "Status"
+        case "bye": return "Bye"
+        default: return "Kickoff"
         }
     }
 

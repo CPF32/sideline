@@ -131,11 +131,10 @@ struct RosterPlayer: Identifiable, Hashable, Codable {
         }
     }
 
-    /// Compact game-status label for roster rows (clock instead of bare STARTED).
+    /// Compact game-status label for roster rows / profile header.
+    /// Live → clock; upcoming → kickoff schedule; final / bye as-is.
     var gameStatusLabel: String? {
         switch gameLockState {
-        case nil, "", "upcoming", "unknown":
-            return nil
         case "bye":
             return "BYE"
         case "final":
@@ -147,9 +146,40 @@ struct RosterPlayer: Identifiable, Hashable, Codable {
                 return String(format: "%d:%02d", m, s)
             }
             return "LIVE"
+        case "upcoming", nil, "":
+            guard let kickoff = gameKickoff else { return nil }
+            return Self.formatKickoffSchedule(kickoff)
+        case "unknown":
+            guard let kickoff = gameKickoff else { return nil }
+            return Self.formatKickoffSchedule(kickoff)
         default:
+            if let kickoff = gameKickoff { return Self.formatKickoffSchedule(kickoff) }
             return gameLockState?.uppercased()
         }
+    }
+
+    /// Compact schedule chip: `Sun 1:00p`, `Today 8:15p`, `Tom 1:00p`.
+    static func formatKickoffSchedule(_ date: Date, now: Date = .now) -> String {
+        let cal = Calendar.current
+        let time: DateFormatter = {
+            let f = DateFormatter()
+            f.locale = Locale(identifier: "en_US_POSIX")
+            f.dateFormat = "h:mma"
+            return f
+        }()
+        let raw = time.string(from: date)
+            .replacingOccurrences(of: "AM", with: "a")
+            .replacingOccurrences(of: "PM", with: "p")
+        if cal.isDateInToday(date) {
+            return "Today \(raw)"
+        }
+        if cal.isDateInTomorrow(date) {
+            return "Tom \(raw)"
+        }
+        let day = DateFormatter()
+        day.locale = Locale(identifier: "en_US_POSIX")
+        day.dateFormat = "EEE"
+        return "\(day.string(from: date)) \(raw)"
     }
 
     func replacing(

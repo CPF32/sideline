@@ -2,10 +2,12 @@ import Foundation
 import SwiftData
 
 /// Launch-arg helpers for App Store marketing screenshots.
-/// Pass `-ScreenshotDemo` and optionally `-ScreenshotTab <team|league|agents|settings>`.
+/// Pass `-ScreenshotDemo` and optionally `-ScreenshotTab <team|league|props|agents|settings>`.
 enum ScreenshotDemo {
     static let demoLeagueId = "99999"
     static let demoHost = "www64.myfantasyleague.com"
+    /// Written only in older builds during screenshot runs — never a real Odds key.
+    static let placeholderOddsAPIKey = "screenshot-demo-odds-key"
 
     static var isEnabled: Bool {
         ProcessInfo.processInfo.arguments.contains("-ScreenshotDemo")
@@ -18,17 +20,19 @@ enum ScreenshotDemo {
         switch args[index + 1].lowercased() {
         case "team": return .team
         case "league": return .league
+        case "props", "analysis": return .props
         case "agents": return .agents
-        case "approvals": return .team
         case "settings": return .settings
+        // Legacy: approvals is a sheet, not a tab — land on Team.
+        case "approvals": return .team
         default: return nil
         }
     }
 
     @MainActor
-    static func applyIfNeeded(appState: AppState, context: ModelContext) {
+    static func applyIfNeeded(appState: AppState, context: ModelContext) async {
         if isEnabled {
-            appState.applyScreenshotDemo(context: context)
+            await appState.applyScreenshotDemo(context: context)
             if let tab = preferredTab {
                 appState.selectedTab = tab
             }
@@ -37,5 +41,9 @@ enum ScreenshotDemo {
         // Simulator screenshot runs persist a fake franchise — wipe it on normal launches
         // so sync never hits a non-resolvable demo host.
         appState.purgeScreenshotDemoIfNeeded(context: context)
+        // Older screenshot builds wrote a placeholder into the real Odds keychain slot.
+        if KeychainStore.get(.oddsAPIKey) == placeholderOddsAPIKey {
+            KeychainStore.delete(.oddsAPIKey)
+        }
     }
 }

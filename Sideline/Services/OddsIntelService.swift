@@ -119,6 +119,8 @@ actor OddsIntelService {
     private var loadedEventIDs: Set<String> = []
     /// Roster NFL teams used for the last props fetch (league switch must refetch).
     private var loadedTeamSignature: String = ""
+    /// When true, `ensureLoaded` keeps seeded screenshot props and skips the network.
+    private var screenshotDemoLocked = false
 
     private(set) var lastStatus: String?
     private(set) var lastRemaining: Int?
@@ -145,10 +147,82 @@ actor OddsIntelService {
         lastStatus = nil
         lastRemaining = nil
         lastWasError = false
+        screenshotDemoLocked = false
         await OddsAPIClient.shared.clearCache()
     }
 
+    /// Deterministic props for App Store captures — skips network while locked.
+    func seedScreenshotDemo(players: [RosterPlayer], season: Int, week: Int) {
+        let kick = Calendar.current.date(byAdding: .hour, value: 18, to: Calendar.current.startOfDay(for: .now)) ?? .now
+        func prop(
+            name: String,
+            market: String,
+            line: Double?,
+            over: Int?,
+            under: Int?,
+            away: String,
+            home: String,
+            event: String
+        ) -> OddsPlayerProp {
+            OddsPlayerProp(
+                id: "\(event)-\(market)-\(name)",
+                playerName: name,
+                marketKey: market,
+                marketLabel: OddsPlayerProp.label(forMarket: market),
+                line: line,
+                overPrice: over,
+                underPrice: under,
+                bookmaker: "DraftKings",
+                eventId: event,
+                matchupLabel: "\(away) @ \(home)",
+                commence: kick
+            )
+        }
+
+        let demo: [OddsPlayerProp] = [
+            prop(name: "Jalen Hurts", market: "player_pass_yds", line: 248.5, over: -110, under: -110, away: "PHI", home: "TB", event: "demo-phi"),
+            prop(name: "Jalen Hurts", market: "player_pass_tds", line: 1.5, over: -105, under: -125, away: "PHI", home: "TB", event: "demo-phi"),
+            prop(name: "Jalen Hurts", market: "player_rush_yds", line: 32.5, over: -115, under: -105, away: "PHI", home: "TB", event: "demo-phi"),
+            prop(name: "Jalen Hurts", market: "player_anytime_td", line: nil, over: 145, under: nil, away: "PHI", home: "TB", event: "demo-phi"),
+            prop(name: "Saquon Barkley", market: "player_rush_yds", line: 88.5, over: -110, under: -110, away: "PHI", home: "TB", event: "demo-phi"),
+            prop(name: "Saquon Barkley", market: "player_receptions", line: 2.5, over: -120, under: -110, away: "PHI", home: "TB", event: "demo-phi"),
+            prop(name: "Saquon Barkley", market: "player_anytime_td", line: nil, over: -130, under: nil, away: "PHI", home: "TB", event: "demo-phi"),
+            prop(name: "Breece Hall", market: "player_rush_yds", line: 72.5, over: -108, under: -112, away: "DEN", home: "NYJ", event: "demo-nyj"),
+            prop(name: "Breece Hall", market: "player_receptions", line: 3.5, over: -115, under: -105, away: "DEN", home: "NYJ", event: "demo-nyj"),
+            prop(name: "CeeDee Lamb", market: "player_receptions", line: 7.5, over: -110, under: -110, away: "DAL", home: "NYG", event: "demo-dal"),
+            prop(name: "CeeDee Lamb", market: "player_reception_yds", line: 92.5, over: -115, under: -105, away: "DAL", home: "NYG", event: "demo-dal"),
+            prop(name: "CeeDee Lamb", market: "player_anytime_td", line: nil, over: 120, under: nil, away: "DAL", home: "NYG", event: "demo-dal"),
+            prop(name: "Amon-Ra St. Brown", market: "player_receptions", line: 8.5, over: -125, under: -105, away: "SEA", home: "DET", event: "demo-det"),
+            prop(name: "Amon-Ra St. Brown", market: "player_reception_yds", line: 86.5, over: -110, under: -110, away: "SEA", home: "DET", event: "demo-det"),
+            prop(name: "Malik Nabers", market: "player_receptions", line: 6.5, over: -110, under: -110, away: "DAL", home: "NYG", event: "demo-dal"),
+            prop(name: "Malik Nabers", market: "player_reception_yds", line: 78.5, over: -108, under: -112, away: "DAL", home: "NYG", event: "demo-dal"),
+            prop(name: "Travis Kelce", market: "player_receptions", line: 5.5, over: -115, under: -105, away: "KC", home: "LAC", event: "demo-kc"),
+            prop(name: "Travis Kelce", market: "player_reception_yds", line: 58.5, over: -110, under: -110, away: "KC", home: "LAC", event: "demo-kc"),
+            prop(name: "James Cook", market: "player_rush_yds", line: 68.5, over: -110, under: -110, away: "MIA", home: "BUF", event: "demo-buf"),
+            prop(name: "James Cook", market: "player_anytime_td", line: nil, over: 105, under: nil, away: "MIA", home: "BUF", event: "demo-buf"),
+            prop(name: "Jayden Daniels", market: "player_pass_yds", line: 236.5, over: -110, under: -110, away: "WAS", home: "ARI", event: "demo-was"),
+            prop(name: "DK Metcalf", market: "player_reception_yds", line: 54.5, over: -110, under: -110, away: "SEA", home: "DET", event: "demo-det")
+        ]
+
+        let teamKeys = Set(
+            players
+                .map { NFLScheduleService.normalizeTeam($0.team) }
+                .filter { !$0.isEmpty }
+        )
+        props = demo
+        byPlayerFold = Dictionary(grouping: demo) { Self.foldName($0.playerName) }
+        events = []
+        loadedEventIDs = Set(demo.map(\.eventId))
+        loadedTeamSignature = "\(season):w\(week):c:" + teamKeys.sorted().joined(separator: ",")
+        loadedAt = .now
+        lastStatus = "Screenshot demo props"
+        lastWasError = false
+        lastRemaining = nil
+        screenshotDemoLocked = true
+    }
+
     func invalidate() async {
+        if screenshotDemoLocked { return }
         loadedAt = nil
         loadedEventIDs = []
         loadedTeamSignature = ""
@@ -172,6 +246,9 @@ actor OddsIntelService {
         )
         let teamSig = "\(season):w\(week):\(isHistoric ? "h" : "c"):" + teamKeys.sorted().joined(separator: ",")
         let maxAge: TimeInterval = hasLiveGames ? 60 : (isHistoric ? 86_400 : 3_600)
+        if screenshotDemoLocked, !props.isEmpty {
+            return
+        }
         if let loadedAt,
            Date().timeIntervalSince(loadedAt) < maxAge,
            !props.isEmpty,

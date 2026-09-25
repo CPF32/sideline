@@ -26,6 +26,7 @@ struct WelcomeView: View {
                         appState.auth.handleSignIn(result)
                     }
 
+                    #if DEBUG
                     Button {
                         appState.auth.continueLocally()
                     } label: {
@@ -38,6 +39,7 @@ struct WelcomeView: View {
                         .font(BrandTheme.body(12))
                         .foregroundStyle(BrandTheme.muted)
                         .multilineTextAlignment(.center)
+                    #endif
                 }
                 .padding(.horizontal, BrandTheme.pageGutterWide)
 

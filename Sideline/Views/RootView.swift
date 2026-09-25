@@ -4,15 +4,26 @@ import SwiftData
 struct RootView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.modelContext) private var modelContext
+    /// Screenshot runs seed async — hold the tab UI until demo data (incl. props) is ready.
+    @State private var isScreenshotReady = !ScreenshotDemo.isEnabled
 
     var body: some View {
         // Observe auth directly — nested ObservableObject changes don't refresh AppState alone.
-        AuthGate(auth: appState.auth)
-            .environmentObject(appState)
-            .onAppear {
-                appState.attach(context: modelContext)
-                ScreenshotDemo.applyIfNeeded(appState: appState, context: modelContext)
+        Group {
+            if ScreenshotDemo.isEnabled && !isScreenshotReady {
+                ZStack { SidelineBackground() }
+            } else {
+                AuthGate(auth: appState.auth)
+                    .environmentObject(appState)
             }
+        }
+        .onAppear {
+            appState.attach(context: modelContext)
+            Task {
+                await ScreenshotDemo.applyIfNeeded(appState: appState, context: modelContext)
+                isScreenshotReady = true
+            }
+        }
     }
 }
 

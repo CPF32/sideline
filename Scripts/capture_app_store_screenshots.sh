@@ -127,8 +127,8 @@ capture() {
 
 capture team "01-team.png"
 capture league "02-league.png"
-capture agents "03-agents.png"
-capture approvals "04-approvals.png"
+capture props "03-props.png"
+capture agents "04-agents.png"
 capture settings "05-settings.png"
 
 xcrun simctl status_bar "$UDID" clear >/dev/null 2>&1 || true

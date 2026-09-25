@@ -4,6 +4,9 @@ import SwiftUI
 
 @MainActor
 final class AppState: ObservableObject {
+    /// Used by Live Activity intents (Lock Screen league cycle) when the system wakes the app.
+    private(set) static weak var shared: AppState?
+
     @Published var team: TeamSnapshot?
     @Published var linkedFranchise: LinkedFranchise?
     /// All connected MFL + Sleeper leagues (hub).
@@ -45,6 +48,13 @@ final class AppState: ObservableObject {
     private static let activeLeagueKey = "sideline.activeLeagueLinkId"
     /// Polls MFL/Sleeper live scores while a Live Activity is active (app foreground).
     private var liveScorePollTask: Task<Void, Never>?
+
+    init() {
+        AppState.shared = self
+        LiveActivityLeagueCycler.cycleHandler = { [weak self] in
+            await self?.cycleLiveActivityLeague()
+        }
+    }
 
     var availableWeeks: [Int] {
         let end = max(seasonEndWeek, currentSeasonWeek, team?.week ?? selectedWeek, 1)
@@ -144,6 +154,24 @@ final class AppState: ObservableObject {
 
     func switchActiveLeague(_ link: LinkedFranchise) {
         guard linkedFranchise?.id != link.id else { return }
+        prepareLeagueSwitch(to: link)
+        Task {
+            await syncTeam()
+            await syncLeagueReview()
+        }
+    }
+
+    /// Same as `switchActiveLeague` but awaits sync — used by the Live Activity cycle button.
+    func switchActiveLeagueAwaitingSync(_ link: LinkedFranchise) async {
+        guard linkedFranchise?.id != link.id else { return }
+        prepareLeagueSwitch(to: link)
+        await syncTeam()
+        await syncLeagueReview()
+    }
+
+    private func prepareLeagueSwitch(to link: LinkedFranchise) {
+        liveScorePollTask?.cancel()
+        liveScorePollTask = nil
         linkedFranchise = link
         UserDefaults.standard.set(link.id, forKey: Self.activeLeagueKey)
         team = nil
@@ -153,10 +181,19 @@ final class AppState: ObservableObject {
         leagueWeekSummary = nil
         statusMessage = "Switched to \(link.leagueName)"
         log("Active league → \(link.provider.shortName): \(link.leagueName)")
-        Task {
-            await syncTeam()
-            await syncLeagueReview()
+    }
+
+    /// Cycles the Lock Screen Live Activity to the next linked league.
+    func cycleLiveActivityLeague() async {
+        if linkedLeagues.isEmpty {
+            refreshLinkedLeagues()
         }
+        guard linkedLeagues.count > 1 else { return }
+        let currentId = linkedFranchise?.id
+        let idx = linkedLeagues.firstIndex(where: { $0.id == currentId }) ?? -1
+        let next = linkedLeagues[(idx + 1) % linkedLeagues.count]
+        LiveActivityManager.setLinkedLeagueCount(linkedLeagues.count)
+        await switchActiveLeagueAwaitingSync(next)
     }
 
     func removeLinkedLeague(_ link: LinkedFranchise) {
@@ -190,6 +227,83 @@ final class AppState: ObservableObject {
 
     func saveAgentCriteria() {
         AgentCriteriaStore.save(agentCriteria)
+    }
+
+    /// Permanently deletes this device’s Sideline account data (local identity, leagues,
+    /// keys, preferences, and SwiftData). There is no server-side Sideline account.
+    func deleteAccount() async {
+        liveScorePollTask?.cancel()
+        liveScorePollTask = nil
+        await LiveActivityManager.endAll()
+
+        if let context = modelContext {
+            func wipe<T: PersistentModel>(_ type: T.Type) {
+                let rows = (try? context.fetch(FetchDescriptor<T>())) ?? []
+                for row in rows { context.delete(row) }
+            }
+            wipe(AgentChatMessage.self)
+            wipe(AgentChatThread.self)
+            wipe(ActionProposal.self)
+            wipe(ActivityEvent.self)
+            wipe(PersistedWeekSummary.self)
+            wipe(LinkedFranchise.self)
+            try? context.save()
+        }
+
+        KeychainStore.deleteAll()
+        llmSettings.resetForAccountDeletion()
+
+        let defaultsKeys = [
+            Self.activeLeagueKey,
+            GuardrailSettings.storageKey,
+            AgentCriteriaBundle.storageKey,
+            "sideline.fantasypros.scoring",
+            "sideline.appearance.darkMode",
+            LiveActivityManager.enabledKey,
+            "sideline.propsTab.visible",
+            LiveActivityPushClient.backendURLKey,
+            LiveActivityPushClient.registerSecretKey
+        ]
+        for key in defaultsKeys {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+
+        Task { await DataCache.shared.clearAll() }
+        Task { await FantasyProsIntelService.shared.reset() }
+        Task { await OddsIntelService.shared.reset() }
+
+        team = nil
+        linkedFranchise = nil
+        linkedLeagues = []
+        isSyncing = false
+        isRunningAgent = false
+        agentRunTitle = nil
+        agentActivityLines = []
+        agentActivityStatus = nil
+        statusMessage = nil
+        errorMessage = nil
+        pendingCount = 0
+        guardrails = GuardrailSettings()
+        agentCriteria = AgentCriteriaBundle()
+        showApprovals = false
+        showSettings = false
+        showConnect = false
+        showAgents = false
+        selectedTab = .team
+        selectedWeek = 1
+        currentSeasonWeek = 1
+        seasonEndWeek = 18
+        upcomingMatchups = []
+        leagueReview = nil
+        isLoadingLeague = false
+        isLoadingProps = false
+        followUpProposal = nil
+        teamWeekSummary = nil
+        leagueWeekSummary = nil
+        isGeneratingTeamSummary = false
+        isGeneratingLeagueSummary = false
+
+        auth.signOut()
     }
 
     func refreshPendingCount() {
@@ -300,12 +414,18 @@ final class AppState: ObservableObject {
         log("Synced roster week \(selectedWeek) (\(linked.provider.shortName))")
         refreshCachedSummaries()
         if let team {
-            LiveActivityManager.sync(from: team, linked: linked)
+            LiveActivityManager.setLinkedLeagueCount(linkedLeagues.count)
+            LiveActivityManager.sync(
+                from: team,
+                linked: linked,
+                linkedLeagueCount: linkedLeagues.count
+            )
             updateLiveScorePolling(team: team)
         }
     }
 
     /// Keep Lock Screen Live Activity fresh by polling host live scores while the app is open.
+    /// Background updates rely on the Cloudflare Worker → APNs push path.
     private func updateLiveScorePolling(team: TeamSnapshot) {
         let live = team.starters.contains { $0.gameLockState == "started" }
         guard LiveActivityManager.isEnabled, live else {
@@ -316,7 +436,7 @@ final class AppState: ObservableObject {
         guard liveScorePollTask == nil else { return }
         liveScorePollTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                try? await Task.sleep(nanoseconds: 45_000_000_000)
                 guard !Task.isCancelled else { break }
                 guard let self else { break }
                 guard LiveActivityManager.isEnabled else { break }
@@ -1184,7 +1304,7 @@ final class AppState: ObservableObject {
     }
 
     /// Deterministic in-memory + SwiftData seed for App Store screenshot captures.
-    func applyScreenshotDemo(context: ModelContext) {
+    func applyScreenshotDemo(context: ModelContext) async {
         auth.applyScreenshotDemo()
         modelContext = context
 
@@ -1362,5 +1482,9 @@ final class AppState: ObservableObject {
         isRunningAgent = false
         showConnect = false
         errorMessage = nil
+
+        // Props tab: deterministic lines without touching the real Odds API keychain slot.
+        UserDefaults.standard.set(true, forKey: "sideline.propsTab.visible")
+        await OddsIntelService.shared.seedScreenshotDemo(players: starters + bench, season: linked.season, week: 6)
     }
 }

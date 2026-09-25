@@ -62,13 +62,18 @@ actor OddsAPIClient {
     }
 
     static func apiKey() -> String? {
+        // Never use the screenshot placeholder for live network calls.
+        if ScreenshotDemo.isEnabled { return nil }
         let key = KeychainStore.get(.oddsAPIKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let key, key.count >= 8 else { return nil }
+        guard let key, key.count >= 8, key != ScreenshotDemo.placeholderOddsAPIKey else { return nil }
         return key
     }
 
-    static var hasAPIKey: Bool { apiKey() != nil }
+    static var hasAPIKey: Bool {
+        if ScreenshotDemo.isEnabled { return true }
+        return apiKey() != nil
+    }
 
     /// Upcoming / live NFL events. Does **not** count against quota.
     func nflEvents() async throws -> Data {

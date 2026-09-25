@@ -170,6 +170,28 @@ final class LLMSettingsStore: ObservableObject {
         keySaveMessage = nil
     }
 
+    /// Wipe provider choice, model, drafts, and all LLM API keys from Keychain.
+    func resetForAccountDeletion() {
+        fetchTask?.cancel()
+        fetchTask = nil
+        KeychainStore.delete(.llmOpenAI)
+        KeychainStore.delete(.llmAnthropic)
+        KeychainStore.delete(.llmGoogle)
+        KeychainStore.delete(.llmOpenRouter)
+        KeychainStore.delete(.llmTypeSafe)
+        UserDefaults.standard.removeObject(forKey: "sideline.llm.provider")
+        UserDefaults.standard.removeObject(forKey: "sideline.llm.model")
+        provider = .openAI
+        liveModels = LLMProvider.openAI.fallbackModels
+        model = LLMProvider.openAI.defaultModel
+        apiKeyDraft = ""
+        keyIsSaved = false
+        keySaveMessage = nil
+        isLoadingModels = false
+        modelsSourceLabel = "Using offline list"
+        modelsError = nil
+    }
+
     func reloadKeyDraft() {
         apiKeyDraft = KeychainStore.get(provider.keychainKey) ?? ""
         keyIsSaved = hasAPIKey

@@ -12,6 +12,7 @@ enum SettingsDestination: String, Hashable, CaseIterable, Identifiable {
     case agentCriteria
     case activity
     case about
+    case account
     case signOut
 
     var id: String { rawValue }
@@ -29,6 +30,7 @@ enum SettingsDestination: String, Hashable, CaseIterable, Identifiable {
         case .agentCriteria: return "Agent criteria"
         case .activity: return "Activity"
         case .about: return "About the developer"
+        case .account: return "Account"
         case .signOut: return "Sign out"
         }
     }
@@ -45,7 +47,8 @@ enum SettingsDestination: String, Hashable, CaseIterable, Identifiable {
         case .teamGoals: return "flag"
         case .agentCriteria: return "slider.horizontal.3"
         case .activity: return "list.bullet"
-        case .about: return "cup.and.saucer"
+        case .about: return "person"
+        case .account: return "person.crop.circle"
         case .signOut: return "rectangle.portrait.and.arrow.right"
         }
     }
@@ -58,7 +61,7 @@ struct SettingsView: View {
     @State private var showSignOutConfirm = false
 
     private let rows: [SettingsDestination] = [
-        .league, .model, .apis, .teamGoals, .agentCriteria, .activity, .theme, .about
+        .league, .model, .apis, .teamGoals, .agentCriteria, .activity, .account, .theme, .about
     ]
 
     var body: some View {
@@ -159,6 +162,7 @@ struct SettingsDetailRouter: View {
             case .agentCriteria: AgentCriteriaListPage()
             case .activity: ActivitySettingsPage()
             case .about: AboutDeveloperSettingsPage()
+            case .account: AccountSettingsPage()
             case .signOut: EmptyView()
             }
         }

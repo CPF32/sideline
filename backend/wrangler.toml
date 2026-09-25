@@ -13,10 +13,11 @@ preview_id = "8eab90b12a2d48438955ec8ccd767b8a"
 # Cloudflare uses Quartz weekdays (use SUN..SAT names — numeric 0 is invalid).
 #   Sun (and Sat in Dec/Jan) 9:30am ET → late games:  Sat/Sun 13:00–23:59 UTC
 #   SNF / Sat night / MNF / TNF run past midnight UTC: Sun/Mon/Tue/Fri 00:00–05:59 UTC
+#   TNF kick (Thu ~8:15pm ET) + pregame:               Thu 23:00–23:59 UTC
 #   MNF doubleheader early kick (7pm ET):             Mon 23:00–23:59 UTC
 # Holiday games off these days (Thanksgiving day slate, Christmas) aren't covered.
 [triggers]
-crons = ["*/5 13-23 * * SUN,SAT", "*/5 0-5 * * SUN,MON,TUE,FRI", "*/5 23 * * MON"]
+crons = ["*/5 13-23 * * SUN,SAT", "*/5 0-5 * * SUN,MON,TUE,FRI", "*/5 23 * * THU,MON"]
 
 [vars]
 APNS_BUNDLE_ID = "com.cpf32.sideline"

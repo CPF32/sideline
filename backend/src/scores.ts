@@ -74,21 +74,25 @@ function sleeperSnapshot(
     ) ?? null;
 
   const playersPoints = (mine.players_points as Record<string, number> | undefined) ?? {};
-  const starters =
-    session.starterIds && session.starterIds.length > 0
-      ? session.starterIds
-      : ((mine.starters as string[] | undefined) ?? []);
+  const liveIds = new Set(
+    (session.liveStarterIds ?? []).map(String).filter((id) => id.length > 0)
+  );
+  // Prefer the live-only list from the app; never fall back to "anyone with points"
+  // (that includes players whose games already finished).
+  const ids =
+    liveIds.size > 0
+      ? [...liveIds]
+      : [];
 
   const names = session.playerNames ?? {};
-  const playerLines = starters
+  const playerLines = ids
     .map((id) => {
       const pts = playersPoints[id];
-      if (pts == null) return null;
       const name = names[id] ?? `Player ${id}`;
-      return `${name}  ${Number(pts).toFixed(1)}  ·  LIVE`;
+      const score = pts == null ? "—" : Number(pts).toFixed(1);
+      return `${name}  ${score}  ·  LIVE`;
     })
-    .filter((x): x is string => Boolean(x))
-    .slice(0, 4);
+    .slice(0, 10);
 
   const myScore = Number(mine.points ?? 0);
   const oppScore = Number(opp?.points ?? 0);
@@ -98,7 +102,7 @@ function sleeperSnapshot(
     oppScore,
     opponentName: session.opponentName || (opp ? `Roster ${opp.roster_id}` : "Opponent"),
     playerLines,
-    liveCount: starters.filter((id) => playersPoints[id] != null).length,
+    liveCount: playerLines.length,
     finalCount: 0,
   };
 }
@@ -160,13 +164,25 @@ function mflSnapshot(
     .map((p) => {
       const name = String(p.name ?? p.id ?? "Player");
       const score = Number(p.score ?? p.pts ?? 0);
-      const status = String(p.status ?? "LIVE").toUpperCase();
-      return { name, score, status };
+      // Don't default to LIVE — missing status is not "in progress".
+      const status = String(p.status ?? "").toUpperCase().replace(/\s+/g, "");
+      const id = String(p.id ?? "");
+      return { name, score, status, id };
     })
-    .filter((p) => p.status.includes("LIVE") || p.status.includes("INPLAY") || p.score > 0)
+    .filter((p) => {
+      // Only currently playing — not final / upcoming with leftover points.
+      const inProgress =
+        p.status.includes("LIVE") ||
+        p.status.includes("INPLAY") ||
+        p.status.includes("IN_PROGRESS");
+      if (!inProgress) return false;
+      const liveIds = session.liveStarterIds ?? [];
+      if (liveIds.length === 0) return true;
+      return liveIds.includes(p.id);
+    })
     .sort((a, b) => b.score - a.score)
-    .slice(0, 4)
-    .map((p) => `${p.name}  ${p.score.toFixed(1)}  ·  ${p.status}`);
+    .slice(0, 10)
+    .map((p) => `${p.name}  ${p.score.toFixed(1)}  ·  LIVE`);
 
   return {
     myScore: Number(mine.score ?? mine.pts ?? 0),
@@ -181,9 +197,11 @@ function mflSnapshot(
 /** Matches the every-5-minutes cron schedule in wrangler.toml. */
 export const SYNC_INTERVAL_SECONDS = 5 * 60;
 
-/** Next 5-minute cron boundary after `now` (Unix seconds). */
+/** ~5 minutes after `now` — matches the poll cadence, not a clock-aligned boundary.
+ *  Clock alignment made late pushes reset the Lock Screen timer to a short leftover
+ *  (e.g. 3:50) instead of a full interval. */
 export function nextSyncAt(now = Math.floor(Date.now() / 1000)): number {
-  return (Math.floor(now / SYNC_INTERVAL_SECONDS) + 1) * SYNC_INTERVAL_SECONDS;
+  return now + SYNC_INTERVAL_SECONDS;
 }
 
 export function toContentState(
@@ -204,6 +222,11 @@ export function toContentState(
     playerLines: scores.playerLines,
     lastUpdated: Math.floor(Date.now() / 1000),
     nextSyncAt: nextSyncAt(),
+    leagueName: session.leagueName,
+    myTeamName: session.myTeamName,
+    providerLabel: session.providerLabel,
+    leagueLinkId: session.leagueLinkId,
+    leagueCount: session.leagueCount ?? 1,
   };
 }
 
@@ -214,6 +237,10 @@ export function contentUnchanged(a?: ContentState, b?: ContentState): boolean {
     a.oppScore === b.oppScore &&
     a.opponentName === b.opponentName &&
     a.statusLine === b.statusLine &&
-    a.playerLines.join("|") === b.playerLines.join("|")
+    a.playerLines.join("|") === b.playerLines.join("|") &&
+    a.leagueName === b.leagueName &&
+    a.myTeamName === b.myTeamName &&
+    a.providerLabel === b.providerLabel &&
+    a.leagueLinkId === b.leagueLinkId
   );
 }

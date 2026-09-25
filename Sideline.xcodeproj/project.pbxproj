@@ -41,6 +41,8 @@
 		99E3C78D9F75F68BE88543BF /* LiveActivityPushClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE5EDFB483814E19EF17FF18 /* LiveActivityPushClient.swift */; };
 		9C4D0951718D7583D115CD82 /* ScreenshotDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE4E04B1E8A1B4E3A3DF8A10 /* ScreenshotDemo.swift */; };
 		9E0E301B21CEA355CF731036 /* MatchupLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B51EE48D08F8D7B280536FE5 /* MatchupLiveActivityAttributes.swift */; };
+		4EB1DF8A704F4AA9A3EDC7CC /* CycleLiveActivityLeagueIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4822BE00EE7A43A3BDB9ABC9 /* CycleLiveActivityLeagueIntent.swift */; };
+		FAE4E00339274251B946E294 /* CycleLiveActivityLeagueIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4822BE00EE7A43A3BDB9ABC9 /* CycleLiveActivityLeagueIntent.swift */; };
 		A0879E9A3FDDE623CCC8C202 /* SidelinePullToRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08B12680EF3EFA08B919088B /* SidelinePullToRefresh.swift */; };
 		A1B7408898A0C70610A6D261 /* PlayerDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E772D8863AC8DEDF5FE3F9E /* PlayerDetailSheet.swift */; };
 		A2F595700443CBBD9A266C4F /* ConnectSleeperView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8861C59B9FEC6C456B122D0 /* ConnectSleeperView.swift */; };
@@ -107,7 +109,7 @@
 		07F9890C029DADC2E9FDBE61 /* RosterPositionGrouping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RosterPositionGrouping.swift; sourceTree = "<group>"; };
 		08B12680EF3EFA08B919088B /* SidelinePullToRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidelinePullToRefresh.swift; sourceTree = "<group>"; };
 		09EAAFB9523BEEC189FAC912 /* SettingsDetailPages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsDetailPages.swift; sourceTree = "<group>"; };
-		10CD784DBD346AEBE64DD90B /* Sideline.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Sideline.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		10CD784DBD346AEBE64DD90B /* Sideline.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Sideline.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		12AB2F35223DF2909CF04FE9 /* AnalysisView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalysisView.swift; sourceTree = "<group>"; };
 		12BC9EB1A4D92E5CD5E8B645 /* SleeperTeamSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleeperTeamSyncService.swift; sourceTree = "<group>"; };
 		1E772D8863AC8DEDF5FE3F9E /* PlayerDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerDetailSheet.swift; sourceTree = "<group>"; };
@@ -121,7 +123,7 @@
 		4C9CC0F993957EA92673F57E /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		54DDD8BA09F3B82A4272E109 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		586D7CFDD99DC727829B91F4 /* LeaguePageHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeaguePageHeader.swift; sourceTree = "<group>"; };
-		5A9668E42D7705156374D8C4 /* SidelineLiveActivity.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = SidelineLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		5A9668E42D7705156374D8C4 /* SidelineLiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SidelineLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		5C7EC58F93703A5D9F6ED342 /* SidelineNavTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidelineNavTitle.swift; sourceTree = "<group>"; };
 		60CE5D8914563CE20900DF0B /* DataCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataCache.swift; sourceTree = "<group>"; };
 		6222EDEB3103507CA2F5D58B /* AppleAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleAuthService.swift; sourceTree = "<group>"; };
@@ -145,6 +147,7 @@
 		AD60B8B582D32702244BCD22 /* BrandTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandTheme.swift; sourceTree = "<group>"; };
 		B196327E49A3A4C21333C742 /* OddsAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OddsAPIClient.swift; sourceTree = "<group>"; };
 		B51EE48D08F8D7B280536FE5 /* MatchupLiveActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchupLiveActivityAttributes.swift; sourceTree = "<group>"; };
+		4822BE00EE7A43A3BDB9ABC9 /* CycleLiveActivityLeagueIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CycleLiveActivityLeagueIntent.swift; sourceTree = "<group>"; };
 		B86EB965C67D971D801CC2BD /* SleeperPlayerCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleeperPlayerCatalog.swift; sourceTree = "<group>"; };
 		B9D757B5DFBB184F31EB53A9 /* AgentFollowUpChatSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFollowUpChatSheet.swift; sourceTree = "<group>"; };
 		BD98978F2B03430C8D77307E /* ConnectLeagueHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectLeagueHubView.swift; sourceTree = "<group>"; };
@@ -250,6 +253,7 @@
 		5B9454515D6315E034CE29F3 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				4822BE00EE7A43A3BDB9ABC9 /* CycleLiveActivityLeagueIntent.swift */,
 				B51EE48D08F8D7B280536FE5 /* MatchupLiveActivityAttributes.swift */,
 			);
 			path = Shared;
@@ -361,11 +365,9 @@
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					1C9B3056EDB5A135C3C0DCBD = {
-						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 					AD3C7153268046635F9AC199 = {
-						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -406,6 +408,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4EB1DF8A704F4AA9A3EDC7CC /* CycleLiveActivityLeagueIntent.swift in Sources */,
 				9E0E301B21CEA355CF731036 /* MatchupLiveActivityAttributes.swift in Sources */,
 				C3061F7384726AA82EE7D341 /* MatchupLiveActivityWidget.swift in Sources */,
 			);
@@ -450,6 +453,7 @@
 				D41BFA28B66E9DE41BBC58F0 /* MFLPlayerResearchService.swift in Sources */,
 				B310AE4B850795AFC2CA8055 /* MainTabView.swift in Sources */,
 				B773158DA77CBF2DB6C4C377 /* MatchupLiveActivityAttributes.swift in Sources */,
+				FAE4E00339274251B946E294 /* CycleLiveActivityLeagueIntent.swift in Sources */,
 				E5C1A136AE2E779B9B30E3B7 /* Models.swift in Sources */,
 				7BF62DA5B113CA5E241FEC4F /* NFLScheduleService.swift in Sources */,
 				4F7B21B667FC2F9DA11F10DA /* OddsAPIClient.swift in Sources */,
@@ -495,7 +499,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = UV23JAL4TD;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SidelineLiveActivity/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -514,7 +518,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = UV23JAL4TD;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SidelineLiveActivity/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -536,7 +540,7 @@
 				CODE_SIGN_ENTITLEMENTS = Sideline/Sideline.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = UV23JAL4TD;
 				INFOPLIST_FILE = Sideline/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Sideline;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Sideline uses the camera to scan an API key from a QR code or on-screen text.";
@@ -634,7 +638,7 @@
 				CODE_SIGN_ENTITLEMENTS = Sideline/Sideline.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = UV23JAL4TD;
 				INFOPLIST_FILE = Sideline/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Sideline;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Sideline uses the camera to scan an API key from a QR code or on-screen text.";

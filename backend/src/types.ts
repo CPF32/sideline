@@ -10,6 +10,11 @@ export type ContentState = {
   lastUpdated: number;
   /** Unix seconds of the next scheduled backend sync (drives the countdown). */
   nextSyncAt?: number;
+  leagueName?: string;
+  myTeamName?: string;
+  providerLabel?: string;
+  leagueLinkId?: string;
+  leagueCount?: number;
 };
 
 export type Provider = "mfl" | "sleeper";
@@ -35,6 +40,10 @@ export type LiveSession = {
   /** Sleeper playerId → display name for live lines */
   playerNames?: Record<string, string>;
   starterIds?: string[];
+  /** Starters whose NFL game is currently in progress (from the iOS schedule annotate). */
+  liveStarterIds?: string[];
+  leagueLinkId?: string;
+  leagueCount?: number;
   /** Hint from iOS; Worker may correct after a successful push. */
   apnsEnvironment?: ApnsEnvironment;
   createdAt: number;
@@ -57,6 +66,9 @@ export type RegisterBody = {
   opponentName?: string;
   playerNames?: Record<string, string>;
   starterIds?: string[];
+  liveStarterIds?: string[];
+  leagueLinkId?: string;
+  leagueCount?: number;
   /** "sandbox" (Xcode) | "production" (TestFlight / App Store) */
   apnsEnvironment?: ApnsEnvironment;
 };

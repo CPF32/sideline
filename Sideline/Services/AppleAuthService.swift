@@ -62,10 +62,18 @@ final class AppleAuthService: ObservableObject {
                     return
                 case .unknown, .failed:
                     // Common on Simulator / local codesign without a Team + capability.
+                    #if DEBUG
                     errorMessage = "Apple Sign In didn’t finish. Use Continue below (common on Simulator), or run from Xcode with your Team and Sign in with Apple capability."
+                    #else
+                    errorMessage = "Apple Sign In didn’t finish. Check your Apple ID and try again."
+                    #endif
                     return
                 case .invalidResponse, .notHandled, .notInteractive:
+                    #if DEBUG
                     errorMessage = "Apple Sign In couldn’t complete (\(ns.code)). Use Continue below to keep going."
+                    #else
+                    errorMessage = "Apple Sign In couldn’t complete. Please try again."
+                    #endif
                     return
                 default:
                     break
@@ -80,6 +88,7 @@ final class AppleAuthService: ObservableObject {
         KeychainStore.delete(.appleDisplayName)
         isSignedIn = false
         displayName = ""
+        errorMessage = nil
     }
 }
 

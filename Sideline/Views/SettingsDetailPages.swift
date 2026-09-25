@@ -140,7 +140,12 @@ struct ThemeSettingsPage: View {
                 if !enabled {
                     Task { await LiveActivityManager.endAll() }
                 } else if let team = appState.team, let linked = appState.linkedFranchise {
-                    LiveActivityManager.sync(from: team, linked: linked)
+                    LiveActivityManager.setLinkedLeagueCount(appState.linkedLeagues.count)
+                    LiveActivityManager.sync(
+                        from: team,
+                        linked: linked,
+                        linkedLeagueCount: appState.linkedLeagues.count
+                    )
                 }
             }
 
@@ -610,11 +615,21 @@ struct OddsAPISettingsPage: View {
 
             Button {
                 let trimmed = apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                KeychainStore.set(trimmed.isEmpty ? nil : trimmed, for: .oddsAPIKey)
-                let ok = trimmed.isEmpty || trimmed.count >= 8
-                banner = trimmed.isEmpty ? "API key cleared." : (ok ? "Odds API key saved." : "Key looks too short.")
-                bannerError = !ok && !trimmed.isEmpty
-                UINotificationFeedbackGenerator().notificationOccurred(bannerError ? .error : .success)
+                let wrote = KeychainStore.set(trimmed.isEmpty ? nil : trimmed, for: .oddsAPIKey)
+                let saved = KeychainStore.get(.oddsAPIKey)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let ok: Bool
+                if trimmed.isEmpty {
+                    ok = wrote && saved == nil
+                    banner = ok ? "API key cleared." : "Couldn’t clear Keychain — try again."
+                } else if trimmed.count < 8 {
+                    ok = false
+                    banner = "Key looks too short."
+                } else {
+                    ok = wrote && saved == trimmed
+                    banner = ok ? "Odds API key saved." : "Couldn’t save API key to Keychain — try again."
+                }
+                bannerError = !ok
+                UINotificationFeedbackGenerator().notificationOccurred(ok ? .success : .error)
                 if ok {
                     Task { await OddsIntelService.shared.reset() }
                 }
@@ -631,7 +646,7 @@ struct OddsAPISettingsPage: View {
             .buttonStyle(SecondaryButtonStyle())
             .disabled(isTesting || apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).count < 8)
 
-            Text("After saving, open Analysis or a player profile — props attach by player name for that game.")
+            Text("After saving, open Props or a player profile — props attach by player name for that game.")
                 .font(BrandTheme.body(13))
                 .foregroundStyle(BrandTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -652,8 +667,10 @@ struct OddsAPISettingsPage: View {
             .ignoresSafeArea()
         }
         .task {
+            // Don’t clobber a fresh save/test banner with a stale “No Odds API key”.
+            if banner != nil { return }
             let status = await OddsIntelService.shared.lastStatus
-            if let status, !status.isEmpty {
+            if let status, !status.isEmpty, status != "No Odds API key" {
                 banner = status
                 bannerError = await OddsIntelService.shared.lastWasError
             }
@@ -664,8 +681,17 @@ struct OddsAPISettingsPage: View {
         isTesting = true
         defer { isTesting = false }
         let trimmed = apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty {
-            KeychainStore.set(trimmed, for: .oddsAPIKey)
+        guard trimmed.count >= 8 else {
+            banner = "Paste an Odds API key first."
+            bannerError = true
+            return
+        }
+        let wrote = KeychainStore.set(trimmed, for: .oddsAPIKey)
+        let saved = KeychainStore.get(.oddsAPIKey)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard wrote, saved == trimmed, OddsAPIClient.hasAPIKey else {
+            banner = "Couldn’t save API key to Keychain — try again."
+            bannerError = true
+            return
         }
         await OddsIntelService.shared.reset()
         let roster = (appState.team?.starters ?? []) + (appState.team?.bench ?? [])
@@ -680,6 +706,10 @@ struct OddsAPISettingsPage: View {
         )
         banner = await OddsIntelService.shared.lastStatus ?? "Connected."
         bannerError = await OddsIntelService.shared.lastWasError
+        if banner == "No Odds API key" {
+            banner = "Keychain save looked fine, but the client still can’t see the key. Force-quit Sideline and try again."
+            bannerError = true
+        }
     }
 }
 
@@ -1131,11 +1161,83 @@ struct ActivitySettingsPage: View {
     }
 }
 
-struct AboutDeveloperSettingsPage: View {
-    private static let venmoUsername = "CPF32"
-    private static let venmoURL = URL(string: "https://venmo.com/u/CPF32")!
+struct AccountSettingsPage: View {
+    @EnvironmentObject private var appState: AppState
+    @State private var showDeleteConfirm = false
+    @State private var isDeleting = false
 
-    @State private var copied = false
+    var body: some View {
+        SettingsPageChrome(title: "Account") {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Delete account")
+                    .font(BrandTheme.body(18, weight: .semibold))
+                    .foregroundStyle(BrandTheme.ink)
+
+                Text(
+                    """
+                    Deleting your account permanently removes Sideline data stored on this device — your sign-in, connected leagues, API keys, preferences, agent activity, and saved proposals.
+
+                    Sideline doesn’t keep a separate cloud account. After deletion you’ll return to the welcome screen and need to sign in again to start fresh. This can’t be undone.
+                    """
+                )
+                .font(BrandTheme.body(14))
+                .foregroundStyle(BrandTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+
+                Button(role: .destructive) {
+                    showDeleteConfirm = true
+                } label: {
+                    Text(isDeleting ? "Deleting…" : "Delete account")
+                        .font(BrandTheme.body(16, weight: .semibold))
+                        .foregroundStyle(BrandTheme.danger)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, BrandTheme.space(14))
+                        .background(BrandTheme.surface)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                                .stroke(BrandTheme.danger.opacity(0.35), lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(isDeleting)
+                .opacity(isDeleting ? 0.5 : 1)
+                .padding(.top, BrandTheme.space(4))
+            }
+            .padding(BrandTheme.pageGutterCompact)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                    .fill(BrandTheme.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                            .stroke(BrandTheme.hairline, lineWidth: 1)
+                    )
+            )
+        }
+        .confirmationDialog(
+            "Delete your Sideline account?",
+            isPresented: $showDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Delete account", role: .destructive) {
+                Task {
+                    isDeleting = true
+                    await appState.deleteAccount()
+                    isDeleting = false
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("All Sideline data on this device will be permanently removed.")
+        }
+    }
+}
+
+struct AboutDeveloperSettingsPage: View {
+    /// Opens in the system browser (not in-app). Required for optional support
+    /// payments outside In-App Purchase on the US storefront.
+    private static let coffeeURL = URL(string: "https://venmo.com/u/CPF32")!
 
     var body: some View {
         SettingsPageChrome(title: "About") {
@@ -1154,72 +1256,14 @@ struct AboutDeveloperSettingsPage: View {
             .foregroundStyle(BrandTheme.ink)
             .fixedSize(horizontal: false, vertical: true)
 
-            VStack(spacing: 14) {
-                Text("BUY ME A COFFEE")
-                    .font(BrandTheme.display(11, weight: .semibold))
-                    .tracking(1)
-                    .foregroundStyle(BrandTheme.muted)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                if let qr = QRCodeImage.make(from: Self.venmoURL.absoluteString, dimension: 200) {
-                    Image(uiImage: qr)
-                        .interpolation(.none)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: BrandTheme.space(200), height: BrandTheme.space(200))
-                        .padding(BrandTheme.pageGutterCompact)
-                        .background(Color.white)
-                        .clipShape(RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous))
-                }
-
-                Text("Venmo @\(Self.venmoUsername)")
-                    .font(BrandTheme.body(18, weight: .semibold))
-                    .foregroundStyle(BrandTheme.ink)
-
-                HStack(spacing: 10) {
-                    Button {
-                        UIPasteboard.general.string = Self.venmoUsername
-                        copied = true
-                        UINotificationFeedbackGenerator().notificationOccurred(.success)
-                    } label: {
-                        Text(copied ? "Copied" : "Copy username")
-                    }
-                    .buttonStyle(SecondaryButtonStyle())
-
-                    Link(destination: Self.venmoURL) {
-                        Text("Open Venmo")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(PrimaryButtonStyle())
-                }
+            Button {
+                UIApplication.shared.open(Self.coffeeURL, options: [:], completionHandler: nil)
+            } label: {
+                Text("Buy me a coffee")
+                    .frame(maxWidth: .infinity)
             }
-            .padding(BrandTheme.pageGutterCompact)
-            .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
-                    .fill(BrandTheme.surface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
-                            .stroke(BrandTheme.hairline, lineWidth: 1)
-                    )
-            )
+            .buttonStyle(SecondaryButtonStyle())
         }
-    }
-}
-
-private enum QRCodeImage {
-    static func make(from string: String, dimension: CGFloat) -> UIImage? {
-        guard let data = string.data(using: .ascii),
-              let filter = CIFilter(name: "CIQRCodeGenerator")
-        else { return nil }
-        filter.setValue(data, forKey: "inputMessage")
-        filter.setValue("M", forKey: "inputCorrectionLevel")
-        guard let output = filter.outputImage else { return nil }
-        let scale = dimension / output.extent.width
-        let scaled = output.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-        let context = CIContext()
-        guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
-        return UIImage(cgImage: cgImage)
     }
 }
 
