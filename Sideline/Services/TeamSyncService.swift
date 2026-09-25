@@ -3,7 +3,8 @@ import Foundation
 enum TeamSyncService {
     static func loadTeam(
         linked: LinkedFranchise,
-        week: Int? = nil
+        week: Int? = nil,
+        revalidatePublic: Bool = false
     ) async throws -> TeamSnapshot {
         let client = MFLClient.shared
         let season = linked.season
@@ -61,13 +62,24 @@ enum TeamSyncService {
             host: host, season: season, type: "playerScores", leagueId: leagueId,
             extra: ["W": String(currentWeek)], cacheTTL: 120
         )
-        async let nflScheduleData = try? await NFLScheduleService.fetchData(season: season, week: currentWeek)
+        async let nflScheduleData = try? await NFLScheduleService.fetchData(
+            season: season,
+            week: currentWeek,
+            revalidate: revalidatePublic
+        )
         async let salariesData = try? await client.exportJSON(
             host: host, season: season, type: "salaries", leagueId: leagueId, cacheTTL: 300
         )
+        // Scoring rarely changes mid-season — long TTL. allRules is global abbrev → label map.
+        async let scoringRulesData = try? await client.exportJSON(
+            host: host, season: season, type: "rules", leagueId: leagueId, cacheTTL: 3_600
+        )
+        async let allRulesData = try? await client.exportGlobalJSON(
+            season: season, type: "allRules", cacheTTL: 86_400
+        )
 
-        let (rosters, players, projections, schedule, standings, weeklyResults, liveScoring, playerScores, nflSchedule, salaries) = try await (
-            rostersData, playersData, projectionsData, scheduleData, standingsData, weeklyResultsData, liveScoringData, playerScoresData, nflScheduleData, salariesData
+        let (rosters, players, projections, schedule, standings, weeklyResults, liveScoring, playerScores, nflSchedule, salaries, scoringRaw, allRulesRaw) = try await (
+            rostersData, playersData, projectionsData, scheduleData, standingsData, weeklyResultsData, liveScoringData, playerScoresData, nflScheduleData, salariesData, scoringRulesData, allRulesData
         )
         let playerMap = MFLNameResolver.parsePlayerNames(from: players)
         let injuryMap = parseInjuries(players)
@@ -80,6 +92,10 @@ enum TeamSyncService {
         let projMap = projections.map { parseProjections($0) } ?? [:]
         let salaryMap = salaries.map { parseSalaries($0) } ?? [:]
         let leagueRules = LeagueRules.parse(from: leagueData)
+        let scoringRules: ScoringRules? = {
+            guard let scoringRaw else { return nil }
+            return ScoringRules.parseMFL(rulesData: scoringRaw, allRulesData: allRulesRaw)
+        }()
         let teamGames = nflSchedule.map { NFLScheduleService.parse($0) } ?? [:]
         let rosterBuckets = parseRoster(
             rosters,
@@ -145,6 +161,7 @@ enum TeamSyncService {
             taxi: taxi,
             matchup: matchup,
             leagueRules: leagueRules,
+            scoringRules: scoringRules,
             totalSalary: totalSalary,
             syncedAt: .now
         )

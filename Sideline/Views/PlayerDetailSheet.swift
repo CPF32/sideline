@@ -100,9 +100,9 @@ struct PlayerDetailSheet: View {
 
     private var emptyMessage: String {
         if FantasyProsClient.hasAPIKey {
-            return "No profile fields matched for this player. Sideline pulls Sleeper bio and MFL ranks when available."
+            return "No profile fields matched for this player. Sideline pulls Sleeper bio, MFL ranks/news when available, and FantasyPros."
         }
-        return "No bio came back for this player. Add a FantasyPros API key in Settings for rankings, projections, and notes."
+        return "No bio came back for this player. Sideline uses Sleeper + MFL public profiles (and news when MFL provides it). Add a FantasyPros API key in Settings for richer notes."
     }
 
     private var detailHasNoAPIFields: Bool {
@@ -174,14 +174,14 @@ struct PlayerDetailSheet: View {
                 .tracking(1)
             VStack(alignment: .leading, spacing: BrandTheme.space(10)) {
                 if let proj = player.projectedPoints {
-                    stripStat(label: "Proj", value: String(format: "%.1f", proj), live: false)
+                    stripStat(label: "Proj", value: String(format: "%.1f", proj), kind: .projected)
                 }
                 let lock = player.gameLockState ?? "upcoming"
                 if lock == "started" || lock == "final", let actual = player.actualPoints {
                     stripStat(
                         label: lock == "started" ? "Live" : "Final",
                         value: String(format: "%.1f", actual),
-                        live: lock == "started"
+                        kind: lock == "started" ? .live : .final
                     )
                 } else if player.projectedPoints == nil {
                     Text("No projection")
@@ -251,11 +251,11 @@ struct PlayerDetailSheet: View {
         ]
     }
 
-    private func stripStat(label: String, value: String, live: Bool) -> some View {
+    private func stripStat(label: String, value: String, kind: WeekPointsKind) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 5) {
                 Circle()
-                    .fill(live ? BrandTheme.accent : BrandTheme.muted.opacity(0.55))
+                    .fill(kind.dotColor)
                     .frame(width: 7, height: 7)
                 Text(label)
                     .font(BrandTheme.body(12, weight: .medium))
@@ -651,6 +651,20 @@ struct PlayerDetailSheet: View {
         } else if let linked = appState.linkedFranchise, linked.isSleeper {
             await PlayerIDCrosswalk.shared.ensureLoaded()
             if let bridge = await PlayerIDCrosswalk.shared.record(sleeperId: player.playerId),
+               let mflId = bridge.mflId,
+               let mflLink = appState.linkedLeagues.first(where: { $0.isMFL }) {
+                let mfl = await MFLPlayerResearchService.fetchDetail(playerId: mflId, linked: mflLink)
+                if fetched.adp == nil { fetched.adp = mfl.adp }
+                if fetched.mflRank == nil { fetched.mflRank = mfl.mflRank }
+                if fetched.topAddsPct == nil { fetched.topAddsPct = mfl.topAddsPct }
+                if (fetched.injury == nil || fetched.injury?.isEmpty == true), let inj = mfl.injury {
+                    fetched.injury = inj
+                }
+                mergeHostNotes(into: &fetched, from: mfl)
+            }
+        } else if let linked = appState.linkedFranchise, linked.isESPN {
+            await PlayerIDCrosswalk.shared.ensureLoaded()
+            if let bridge = await PlayerIDCrosswalk.shared.record(espnId: player.playerId),
                let mflId = bridge.mflId,
                let mflLink = appState.linkedLeagues.first(where: { $0.isMFL }) {
                 let mfl = await MFLPlayerResearchService.fetchDetail(playerId: mflId, linked: mflLink)

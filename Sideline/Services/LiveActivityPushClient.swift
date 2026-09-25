@@ -37,6 +37,8 @@ enum LiveActivityPushClient {
         let season: Int
         let host: String?
         let mflCookie: String?
+        let espnS2: String?
+        let espnSwid: String?
         let leagueName: String
         let myTeamName: String
         let providerLabel: String
@@ -45,6 +47,10 @@ enum LiveActivityPushClient {
         let starterIds: [String]?
         /// Starters whose NFL game is in progress — ticker / push lines use only these.
         let liveStarterIds: [String]?
+        /// Opponent live fantasy lines (`Name  12.3`) from the last app sync.
+        let oppLivePlayerLines: [String]?
+        /// Active NFL games (`KC @ LAC  12:34`) from the last app sync.
+        let nflGameLines: [String]?
         let leagueLinkId: String?
         let leagueCount: Int?
         /// "sandbox" for Xcode/dev installs; "production" for TestFlight / App Store.

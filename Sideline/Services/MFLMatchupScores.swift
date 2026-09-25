@@ -70,7 +70,8 @@ enum MFLMatchupScores {
                     myScore: pair.home.score,
                     oppScore: pair.away.score,
                     opponentName: pair.away.name,
-                    lineupDeadline: nil
+                    lineupDeadline: nil,
+                    oppLivePlayerLines: livePlayerLines(from: liveScoring, franchiseId: pair.away.id)
                 )
             }
             if pair.away.id == myId {
@@ -79,7 +80,8 @@ enum MFLMatchupScores {
                     myScore: pair.away.score,
                     oppScore: pair.home.score,
                     opponentName: pair.home.name,
-                    lineupDeadline: nil
+                    lineupDeadline: nil,
+                    oppLivePlayerLines: livePlayerLines(from: liveScoring, franchiseId: pair.home.id)
                 )
             }
         }
@@ -213,5 +215,54 @@ enum MFLMatchupScores {
             return Double(trimmed)
         }
         return nil
+    }
+
+    /// Live fantasy lines for a franchise from `liveScoring` DETAILS (`Name  12.3`).
+    private static func livePlayerLines(from data: Data?, franchiseId: String) -> [String] {
+        guard let data,
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return [] }
+        let live = (root["liveScoring"] as? [String: Any]) ?? root
+        let want = MFLNameResolver.normalizeFranchiseId(franchiseId)
+
+        func playerRows(in franchise: [String: Any]) -> [[String: Any]] {
+            let playersNode = franchise["players"] as? [String: Any]
+            return arrayOfDicts(playersNode?["player"] ?? franchise["player"])
+        }
+
+        func lines(from franchise: [String: Any]) -> [String] {
+            playerRows(in: franchise)
+                .compactMap { row -> (String, Double)? in
+                    let status = String(row["status"] as? String ?? "")
+                        .uppercased()
+                        .replacingOccurrences(of: " ", with: "")
+                    let inProgress =
+                        status.contains("LIVE")
+                        || status.contains("INPLAY")
+                        || status.contains("IN_PROGRESS")
+                    guard inProgress else { return nil }
+                    let name = (row["name"] as? String)
+                        ?? (row["id"] as? String)
+                        ?? (row["id"] as? Int).map(String.init)
+                        ?? "Player"
+                    let score = doubleValue(row["score"]) ?? doubleValue(row["pts"]) ?? 0
+                    return (name, score)
+                }
+                .sorted { $0.1 > $1.1 }
+                .prefix(10)
+                .map { String(format: "%@  %.1f", $0.0, $0.1) }
+        }
+
+        for matchup in arrayOfDicts(live["matchup"]) {
+            for franchise in arrayOfDicts(matchup["franchise"]) {
+                let id = MFLNameResolver.normalizeFranchiseId((franchise["id"] as? String) ?? "")
+                if id == want { return lines(from: franchise) }
+            }
+        }
+        for franchise in arrayOfDicts(live["franchise"]) {
+            let id = MFLNameResolver.normalizeFranchiseId((franchise["id"] as? String) ?? "")
+            if id == want { return lines(from: franchise) }
+        }
+        return []
     }
 }

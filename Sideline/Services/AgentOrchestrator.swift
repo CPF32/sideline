@@ -415,6 +415,11 @@ enum TeamContextBuilder {
 
         let rules = team.leagueRules
         parts.append("LEAGUE ROSTER RULES:\n\(rules?.summaryForLLM ?? "Unavailable")")
+        if let scoring = team.scoringRules, !scoring.isEmpty {
+            parts.append(scoring.summaryForLLM)
+        } else {
+            parts.append("LEAGUE SCORING: unavailable — use projections as given; do not assume PPR vs standard.")
+        }
         parts.append(complianceBlock(team: team, rules: rules))
 
         if focus == .waiver || focus == .trade || focus == .draft {

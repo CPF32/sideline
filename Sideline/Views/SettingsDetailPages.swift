@@ -211,7 +211,7 @@ struct LeagueSettingsPage: View {
             }
             .buttonStyle(PrimaryButtonStyle())
 
-            Text("Sideline is a hub for MFL and Sleeper. Approve writes lineups only for MFL; Sleeper stays read-only.")
+            Text("Sideline is a hub for MFL, Sleeper, and ESPN. Approve writes lineups only for MFL; Sleeper and ESPN stay read-only.")
                 .font(BrandTheme.body(13))
                 .foregroundStyle(BrandTheme.muted)
         }
@@ -477,11 +477,11 @@ struct APIKeySettingsPage: View {
 }
 
 struct APIsSettingsPage: View {
-    private let rows: [SettingsDestination] = [.apiKey, .fantasyPros, .oddsAPI]
+    private let rows: [SettingsDestination] = [.oddsAPI, .fantasyPros, .apiKey]
 
     var body: some View {
         SettingsPageChrome(title: "APIs") {
-            Text("Keys for the LLM, FantasyPros intel, and NFL market odds. Each is stored in Keychain on this device.")
+            Text("Keys for NFL props (Odds API), FantasyPros intel, and your LLM. Each is stored in Keychain on this device.")
                 .font(BrandTheme.body(14))
                 .foregroundStyle(BrandTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -735,7 +735,7 @@ struct FantasyProsSettingsPage: View {
                     .clipShape(RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous))
             }
 
-            Text("Sideline joins FantasyPros to MFL and Sleeper via the DynastyProcess player-ID map, so ranks, projections, and news attach the same way in every league. Your API key powers the data; the crosswalk powers the matching.")
+            Text("Sideline joins FantasyPros to MFL, Sleeper, and ESPN via the DynastyProcess player-ID map, so ranks, projections, and news attach the same way in every league. Your API key powers the data; the crosswalk powers the matching.")
                 .font(BrandTheme.body(14))
                 .foregroundStyle(BrandTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)

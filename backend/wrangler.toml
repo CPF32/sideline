@@ -8,6 +8,19 @@ binding = "SESSIONS"
 id = "16dc11c278c048b28b3d743c9bc41320"
 preview_id = "8eab90b12a2d48438955ec8ccd767b8a"
 
+# Shared public cache (schedule, nflState, matchups, catalog blobs).
+# Isolated from Live Activity so LA write pressure stays on SESSIONS.
+[[kv_namespaces]]
+binding = "CACHE"
+id = "edf938d08d2046ea87db195baafd38d2"
+preview_id = "e1a9dba8f0a441df9841a3578d23f85e"
+
+# Large catalogs (Sleeper players, DynastyProcess CSV) — R2 preferred over KV.
+[[r2_buckets]]
+binding = "PUBLIC"
+bucket_name = "sideline-public"
+preview_bucket_name = "sideline-public"
+
 # Poll every 5 minutes, but only during NFL game windows. Cron is UTC; each window
 # is padded so it holds in both EDT (UTC-4) and EST (UTC-5).
 # Cloudflare uses Quartz weekdays (use SUN..SAT names — numeric 0 is invalid).
@@ -16,8 +29,15 @@ preview_id = "8eab90b12a2d48438955ec8ccd767b8a"
 #   TNF kick (Thu ~8:15pm ET) + pregame:               Thu 23:00–23:59 UTC
 #   MNF doubleheader early kick (7pm ET):             Mon 23:00–23:59 UTC
 # Holiday games off these days (Thanksgiving day slate, Christmas) aren't covered.
+#
+# Extra daily catalog refresh at 10:00 UTC (off peak for US game windows).
 [triggers]
-crons = ["*/5 13-23 * * SUN,SAT", "*/5 0-5 * * SUN,MON,TUE,FRI", "*/5 23 * * THU,MON"]
+crons = [
+  "*/5 13-23 * * SUN,SAT",
+  "*/5 0-5 * * SUN,MON,TUE,FRI",
+  "*/5 23 * * THU,MON",
+  "0 10 * * *",
+]
 
 [vars]
 APNS_BUNDLE_ID = "com.cpf32.sideline"

@@ -1,14 +1,14 @@
 # Sideline Privacy Policy
 
-**Last updated:** September 20, 2026
+**Last updated:** September 24, 2026
 
-Sideline (“the app”) is a local-first iOS companion for MyFantasyLeague managers. This policy describes what information the app handles and how it is used.
+Sideline (“the app”) is a local-first iOS companion for MyFantasyLeague and Sleeper managers. This policy describes what information the app handles and how it is used.
 
 ## Summary
 
-- Sideline is designed to keep your credentials and league data **on your device**.
-- We do **not** operate a Sideline backend that stores your MFL password, LLM API keys, or roster data.
-- Third-party services you connect (Apple, MyFantasyLeague, and your chosen LLM provider) process data under their own policies when the app talks to them.
+- Sideline is designed to keep your credentials and private league data **on your device**.
+- Optional **Sideline Cloudflare Workers** power Live Activity push and a **shared public data cache** (NFL schedule, Sleeper public catalogs/state/matchups, DynastyProcess player IDs). Those Workers do **not** store your MFL password, FantasyPros / Odds / LLM API keys, or private roster exports.
+- Third-party services you connect (Apple, MyFantasyLeague, Sleeper, and your chosen LLM / intel providers) process data under their own policies when the app talks to them.
 
 ## Information the app stores on your device
 
@@ -16,9 +16,11 @@ Sideline (“the app”) is a local-first iOS companion for MyFantasyLeague mana
 | --- | --- | --- |
 | Sign in with Apple user ID and display name (optional) | Keychain / on-device | Sign you in locally |
 | MyFantasyLeague username and session cookie | Keychain | Connect and sync your league |
-| LLM API keys you paste in Settings | Keychain | Call the provider you select |
+| Sleeper username / user id | Keychain | Connect and sync Sleeper leagues |
+| LLM, FantasyPros, and Odds API keys you paste in Settings | Keychain | Call the provider you select (BYOK) |
 | Camera (optional) | Not stored | Scan an API key from a QR code or on-screen text; frames are not saved |
 | Linked league / franchise metadata, proposals, chat threads, preferences | On-device (SwiftData / UserDefaults) | Run the team cockpit, agents, and approvals |
+| HTTP response cache for public + league fetches | On-device cache | Faster loads without re-hitting the network |
 
 Deleting the app removes this on-device data (subject to any iCloud/device backups you enable).
 
@@ -28,15 +30,19 @@ Only when **you** use a feature that requires it:
 
 1. **Apple** — Sign in with Apple authentication (if you use that option).
 2. **MyFantasyLeague** — Login, roster/league export, and writes you **approve** (lineups and other actions).
-3. **Your LLM provider** (OpenAI, Anthropic, Google, OpenRouter, or another you configure) — prompts and tool context needed for agent runs and follow-up chat. Those requests use **your** API key and go to **that** provider.
+3. **Sleeper** — Public league/roster APIs for leagues you connect.
+4. **Your LLM / FantasyPros / Odds providers** — requests use **your** API keys and go to **those** providers from the device (not through Sideline’s public cache).
+5. **Sideline Live Activity Worker** (optional) — push token and matchup context so Lock Screen scores update while the app is backgrounded. For MFL, this may include a short-lived session cookie (up to ~8 hours) while a Live Activity is active.
+6. **Sideline public cache Worker** — the app may fetch shared public blobs (schedule, catalogs, public matchups) from Sideline instead of directly from upstream. Responses are the same public data; no credentials are sent on these requests.
 
 Sideline does not sell personal information and does not use third-party advertising or analytics SDKs in the current app.
 
 ## How we use information
 
-- Provide fantasy GM features (sync, agents, approvals).
+- Provide fantasy GM features (sync, agents, approvals, Live Activities).
 - Authenticate with services you choose to connect.
-- Keep API keys and session cookies out of the app binary and off any Sideline server.
+- Cache public sports/fantasy metadata at the edge to improve performance and reduce upstream load.
+- Keep API keys and long-lived session cookies out of the app binary; commercial keys stay on-device.
 
 ## Sharing
 

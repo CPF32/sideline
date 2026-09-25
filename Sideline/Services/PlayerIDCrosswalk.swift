@@ -4,16 +4,17 @@ import Foundation
 struct PlayerIDRecord: Hashable, Sendable {
     var mflId: String?
     var sleeperId: String?
+    var espnId: String?
     var fantasyProsId: String?
     var name: String
     var position: String
     var team: String
 }
 
-/// Shared MFL ↔ Sleeper ↔ FantasyPros identity map (DynastyProcess / nflverse).
+/// Shared MFL ↔ Sleeper ↔ ESPN ↔ FantasyPros identity map (DynastyProcess / nflverse).
 ///
 /// Name matching alone is fragile across hosts. This table is the durable join key so
-/// Sleeper leagues get the same FantasyPros ranks/projections (and optional MFL research)
+/// Sleeper / ESPN leagues get the same FantasyPros ranks/projections (and optional MFL research)
 /// that MFL leagues already enjoy via native MFL ids.
 actor PlayerIDCrosswalk {
     static let shared = PlayerIDCrosswalk()
@@ -24,6 +25,7 @@ actor PlayerIDCrosswalk {
 
     private var byMFL: [String: PlayerIDRecord] = [:]
     private var bySleeper: [String: PlayerIDRecord] = [:]
+    private var byEspn: [String: PlayerIDRecord] = [:]
     private var byFantasyPros: [String: PlayerIDRecord] = [:]
     private var loadedAt: Date?
     private let maxAge: TimeInterval = 86_400 * 7
@@ -85,6 +87,10 @@ actor PlayerIDCrosswalk {
         bySleeper[sleeperId.trimmingCharacters(in: .whitespacesAndNewlines)]
     }
 
+    func record(espnId: String) -> PlayerIDRecord? {
+        byEspn[espnId.trimmingCharacters(in: .whitespacesAndNewlines)]
+    }
+
     func record(fantasyProsId: String) -> PlayerIDRecord? {
         byFantasyPros[fantasyProsId.trimmingCharacters(in: .whitespacesAndNewlines)]
     }
@@ -94,8 +100,10 @@ actor PlayerIDCrosswalk {
         let id = playerId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !id.isEmpty else { return nil }
         if providerHint == "sleeper", let hit = bySleeper[id] { return hit }
+        if providerHint == "espn", let hit = byEspn[id] { return hit }
         if providerHint == "mfl", let hit = record(mflId: id) { return hit }
         if let hit = bySleeper[id] { return hit }
+        if let hit = byEspn[id] { return hit }
         if let hit = record(mflId: id) { return hit }
         if let hit = byFantasyPros[id] { return hit }
         return nil
@@ -107,6 +115,7 @@ actor PlayerIDCrosswalk {
         guard let text = String(data: data, encoding: .utf8) else { return }
         var byMFL: [String: PlayerIDRecord] = [:]
         var bySleeper: [String: PlayerIDRecord] = [:]
+        var byEspn: [String: PlayerIDRecord] = [:]
         var byFP: [String: PlayerIDRecord] = [:]
 
         var headerIndex: [String: Int] = [:]
@@ -131,12 +140,14 @@ actor PlayerIDCrosswalk {
 
             let mfl = col("mfl_id")
             let sleeper = col("sleeper_id")
+            let espn = col("espn_id")
             let fp = col("fantasypros_id")
-            guard mfl != nil || sleeper != nil || fp != nil else { continue }
+            guard mfl != nil || sleeper != nil || espn != nil || fp != nil else { continue }
 
             let record = PlayerIDRecord(
                 mflId: mfl,
                 sleeperId: sleeper,
+                espnId: espn,
                 fantasyProsId: fp,
                 name: col("name") ?? "",
                 position: col("position") ?? "",
@@ -147,12 +158,14 @@ actor PlayerIDCrosswalk {
                 byMFL[MFLNameResolver.normalizePlayerId(mfl)] = record
             }
             if let sleeper { bySleeper[sleeper] = record }
+            if let espn { byEspn[espn] = record }
             if let fp { byFP[fp] = record }
         }
 
-        guard !bySleeper.isEmpty || !byMFL.isEmpty else { return }
+        guard !bySleeper.isEmpty || !byMFL.isEmpty || !byEspn.isEmpty else { return }
         self.byMFL = byMFL
         self.bySleeper = bySleeper
+        self.byEspn = byEspn
         self.byFantasyPros = byFP
         self.loadedAt = .now
     }

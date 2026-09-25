@@ -1,18 +1,26 @@
 import Foundation
 
 enum SleeperTeamSyncService {
-    static func loadTeam(linked: LinkedFranchise, week: Int? = nil) async throws -> TeamSnapshot {
+    static func loadTeam(
+        linked: LinkedFranchise,
+        week: Int? = nil,
+        revalidatePublic: Bool = false
+    ) async throws -> TeamSnapshot {
         let client = SleeperClient.shared
-        let state = try await client.nflState()
+        let state = try await client.nflState(revalidate: revalidatePublic)
         let currentWeek = week ?? state.week
-        await SleeperPlayerCatalog.shared.ensureLoaded()
+        await SleeperPlayerCatalog.shared.ensureLoaded(revalidate: revalidatePublic)
 
         async let rostersData = client.rosters(leagueId: linked.leagueId)
         async let usersData = client.users(leagueId: linked.leagueId)
         // Public MFL nflSchedule — no MFL login required; works for Sleeper-only users.
-        async let teamGamesTask = NFLScheduleService.teamGames(season: state.season, week: currentWeek)
+        async let teamGamesTask = NFLScheduleService.teamGames(
+            season: state.season,
+            week: currentWeek,
+            revalidate: revalidatePublic
+        )
         async let projectionsData = try? await client.weeklyProjections(season: state.season, week: currentWeek)
-        async let scoringKeyTask = client.leagueScoringKey(leagueId: linked.leagueId)
+        async let leagueDataTask = try? await client.league(leagueId: linked.leagueId)
 
         let rostersRaw = try await rostersData
         let usersRaw = try await usersData
@@ -21,10 +29,19 @@ enum SleeperTeamSyncService {
         let matchupsRaw = try? await client.matchups(
             leagueId: linked.leagueId,
             week: currentWeek,
-            hasLiveGames: hasLiveGames
+            hasLiveGames: hasLiveGames,
+            revalidate: revalidatePublic
         )
         let projectionsRaw = await projectionsData
-        let scoringKey = await scoringKeyTask
+        let leagueRaw = await leagueDataTask
+        let scoringSettings: [String: Any]? = {
+            guard let leagueRaw,
+                  let root = try? JSONSerialization.jsonObject(with: leagueRaw) as? [String: Any]
+            else { return nil }
+            return root["scoring_settings"] as? [String: Any]
+        }()
+        let scoringKey = ScoringRules.sleeperProjectionKey(from: scoringSettings)
+        let scoringRules = scoringSettings.map { ScoringRules.parseSleeper(scoring: $0) }
         let names = parseUserNames(usersRaw)
         let rosterId = Int(linked.franchiseId) ?? 0
         guard let myRoster = parseRosters(rostersRaw).first(where: { $0.rosterId == rosterId }) else {
@@ -104,13 +121,14 @@ enum SleeperTeamSyncService {
             fallback: myName.isEmpty ? linked.franchiseName : myName
         )
 
-        let matchup = buildMatchup(
+        let matchup = await buildMatchup(
             matchupsRaw: matchupsRaw,
             rosterId: rosterId,
             rosters: parseRosters(rostersRaw),
             names: names,
             usersRaw: usersRaw,
-            week: currentWeek
+            week: currentWeek,
+            teamGames: teamGames
         )
 
         let fpts = myRoster.settings["fpts"] as? Double
@@ -136,6 +154,7 @@ enum SleeperTeamSyncService {
                 starterSlots: [],
                 endWeek: 18
             ),
+            scoringRules: scoringRules,
             syncedAt: .now
         )
     }
@@ -175,11 +194,19 @@ enum SleeperTeamSyncService {
         return out
     }
 
-    static func loadLeagueReview(linked: LinkedFranchise, week: Int) async throws -> LeagueReviewSnapshot {
+    static func loadLeagueReview(
+        linked: LinkedFranchise,
+        week: Int,
+        revalidatePublic: Bool = false
+    ) async throws -> LeagueReviewSnapshot {
         let client = SleeperClient.shared
         async let rostersData = client.rosters(leagueId: linked.leagueId)
         async let usersData = client.users(leagueId: linked.leagueId)
-        async let matchupsData = try? await client.matchups(leagueId: linked.leagueId, week: week)
+        async let matchupsData = try? await client.matchups(
+            leagueId: linked.leagueId,
+            week: week,
+            revalidate: revalidatePublic
+        )
         async let txData = try? await client.transactions(leagueId: linked.leagueId, week: week)
 
         let (rostersRaw, usersRaw, matchupsRaw, transactionsRaw) = try await (
@@ -481,8 +508,9 @@ enum SleeperTeamSyncService {
         rosters: [SleeperRoster],
         names: [String: String],
         usersRaw: Data,
-        week: Int
-    ) -> MatchupSnapshot? {
+        week: Int,
+        teamGames: [String: NFLGameInfo]
+    ) async -> MatchupSnapshot? {
         guard let matchupsRaw else { return nil }
         let rows = parseMatchups(matchupsRaw)
         guard let mine = rows.first(where: { $0.rosterId == rosterId }),
@@ -497,12 +525,43 @@ enum SleeperTeamSyncService {
             usersRaw: usersRaw,
             fallback: names[oppOwner] ?? "Opponent"
         )
+        let oppLines = await oppLiveFantasyLines(
+            opp: opp,
+            oppRoster: rosters.first { $0.rosterId == opp?.rosterId },
+            teamGames: teamGames
+        )
         return MatchupSnapshot(
             week: week,
             myScore: mine.points,
             oppScore: opp?.points,
-            opponentName: oppName
+            opponentName: oppName,
+            oppLivePlayerLines: oppLines
         )
+    }
+
+    /// Opponent starters whose NFL game is in progress.
+    private static func oppLiveFantasyLines(
+        opp: SleeperMatchup?,
+        oppRoster: SleeperRoster?,
+        teamGames: [String: NFLGameInfo]
+    ) async -> [String] {
+        guard let opp else { return [] }
+        let starterIds = oppRoster?.starters ?? Array(opp.playersPoints.keys)
+        var scored: [(name: String, pts: Double)] = []
+        for pid in starterIds where pid != "0" && !pid.isEmpty {
+            let record = await SleeperPlayerCatalog.shared.player(id: pid)
+            let team = (record?.team ?? "").uppercased()
+            let key = NFLScheduleService.normalizeTeam(team)
+            let lock = teamGames[key]?.lockState ?? teamGames[team]?.lockState
+            guard lock == "started" else { continue }
+            let name = record?.fullName ?? "Player \(pid)"
+            let pts = opp.playersPoints[pid] ?? 0
+            scored.append((name, pts))
+        }
+        return scored
+            .sorted { $0.pts > $1.pts }
+            .prefix(10)
+            .map { String(format: "%@  %.1f", $0.name, $0.pts) }
     }
 
     private static func parseTransactions(

@@ -9,7 +9,7 @@ final class AppState: ObservableObject {
 
     @Published var team: TeamSnapshot?
     @Published var linkedFranchise: LinkedFranchise?
-    /// All connected MFL + Sleeper leagues (hub).
+    /// All connected MFL + Sleeper + ESPN leagues (hub).
     @Published var linkedLeagues: [LinkedFranchise] = []
     @Published var isSyncing = false
     @Published var isRunningAgent = false
@@ -26,6 +26,8 @@ final class AppState: ObservableObject {
     @Published var showConnect = false
     @Published var showAgents = false
     @Published var selectedTab: MainTab = .team
+    /// Deep-link into Settings (e.g. Props empty state → Odds API).
+    @Published var settingsPath: [SettingsDestination] = []
     @Published var selectedWeek: Int = 1
     @Published var currentSeasonWeek: Int = 1
     /// Last regular-season (or playoff) week available in this league for browsing/lineups.
@@ -290,6 +292,7 @@ final class AppState: ObservableObject {
         showConnect = false
         showAgents = false
         selectedTab = .team
+        settingsPath = []
         selectedWeek = 1
         currentSeasonWeek = 1
         seasonEndWeek = 18
@@ -320,7 +323,7 @@ final class AppState: ObservableObject {
         Task { await syncTeam(week: week) }
     }
 
-    func syncTeam(week: Int? = nil) async {
+    func syncTeam(week: Int? = nil, revalidatePublic: Bool = false) async {
         guard !ScreenshotDemo.isEnabled else { return }
         guard let linked = linkedFranchise else {
             showConnect = true
@@ -331,7 +334,7 @@ final class AppState: ObservableObject {
         defer { isSyncing = false }
 
         do {
-            try await performTeamSync(linked: linked, week: week)
+            try await performTeamSync(linked: linked, week: week, revalidatePublic: revalidatePublic)
         } catch {
             let msg = error.localizedDescription
             let transient = msg.localizedCaseInsensitiveContains("429")
@@ -345,7 +348,7 @@ final class AppState: ObservableObject {
                 log("Sync retry after transient failure", detail: msg)
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 do {
-                    try await performTeamSync(linked: linked, week: week)
+                    try await performTeamSync(linked: linked, week: week, revalidatePublic: revalidatePublic)
                     return
                 } catch {
                     // fall through with original handling using latest error
@@ -368,22 +371,51 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func performTeamSync(linked: LinkedFranchise, week: Int?) async throws {
+    private func performTeamSync(
+        linked: LinkedFranchise,
+        week: Int?,
+        revalidatePublic: Bool = false
+    ) async throws {
         let snapshot: TeamSnapshot
         if linked.isSleeper {
             if let week {
-                snapshot = try await SleeperTeamSyncService.loadTeam(linked: linked, week: week)
+                snapshot = try await SleeperTeamSyncService.loadTeam(
+                    linked: linked,
+                    week: week,
+                    revalidatePublic: revalidatePublic
+                )
                 selectedWeek = week
             } else {
-                snapshot = try await SleeperTeamSyncService.loadTeam(linked: linked, week: nil)
+                snapshot = try await SleeperTeamSyncService.loadTeam(
+                    linked: linked,
+                    week: nil,
+                    revalidatePublic: revalidatePublic
+                )
+                selectedWeek = snapshot.week
+                currentSeasonWeek = snapshot.week
+            }
+        } else if linked.isESPN {
+            if let week {
+                snapshot = try await ESPNTeamSyncService.loadTeam(linked: linked, week: week)
+                selectedWeek = week
+            } else {
+                snapshot = try await ESPNTeamSyncService.loadTeam(linked: linked, week: nil)
                 selectedWeek = snapshot.week
                 currentSeasonWeek = snapshot.week
             }
         } else if let week {
-            snapshot = try await TeamSyncService.loadTeam(linked: linked, week: week)
+            snapshot = try await TeamSyncService.loadTeam(
+                linked: linked,
+                week: week,
+                revalidatePublic: revalidatePublic
+            )
             selectedWeek = week
         } else {
-            snapshot = try await TeamSyncService.loadTeam(linked: linked, week: nil)
+            snapshot = try await TeamSyncService.loadTeam(
+                linked: linked,
+                week: nil,
+                revalidatePublic: revalidatePublic
+            )
             selectedWeek = snapshot.week
             currentSeasonWeek = snapshot.week
         }
@@ -487,6 +519,12 @@ final class AppState: ObservableObject {
                     afterWeek: currentSeasonWeek,
                     throughWeek: seasonEndWeek
                 )
+            } else if linked.isESPN {
+                rows = try await ESPNTeamSyncService.upcomingMatchups(
+                    linked: linked,
+                    afterWeek: currentSeasonWeek,
+                    throughWeek: seasonEndWeek
+                )
             } else {
                 rows = try await TeamSyncService.upcomingMatchups(
                     linked: linked,
@@ -501,7 +539,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    func syncLeagueReview() async {
+    func syncLeagueReview(revalidatePublic: Bool = false) async {
         guard !ScreenshotDemo.isEnabled else { return }
         guard let linked = linkedFranchise else {
             showConnect = true
@@ -512,6 +550,12 @@ final class AppState: ObservableObject {
         do {
             if linked.isSleeper {
                 leagueReview = try await SleeperTeamSyncService.loadLeagueReview(
+                    linked: linked,
+                    week: selectedWeek,
+                    revalidatePublic: revalidatePublic
+                )
+            } else if linked.isESPN {
+                leagueReview = try await ESPNTeamSyncService.loadLeagueReview(
                     linked: linked,
                     week: selectedWeek
                 )
@@ -710,6 +754,75 @@ final class AppState: ObservableObject {
         return (user, resolved)
     }
 
+    func connectESPN(
+        leagueId: String,
+        season: Int,
+        espnS2: String,
+        swid: String
+    ) async throws -> (probe: ESPNLeagueProbe, suggestedTeam: ESPNTeamSummary?) {
+        let s2 = espnS2.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sw = swid.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cookies: ESPNCookies? = (!s2.isEmpty && !sw.isEmpty)
+            ? ESPNCookies(espnS2: s2, swid: sw)
+            : nil
+        if let cookies {
+            cookies.saveToKeychain()
+        }
+        let probe = try await ESPNClient.shared.probeLeague(
+            leagueId: leagueId.trimmingCharacters(in: .whitespacesAndNewlines),
+            season: season,
+            cookies: cookies ?? ESPNCookies.fromKeychain()
+        )
+        let suggested = await ESPNClient.shared.resolveMyTeam(
+            teams: probe.teams,
+            swid: cookies?.swid ?? KeychainStore.get(.espnSWID)
+        )
+        return (probe, suggested)
+    }
+
+    func selectESPNLeague(probe: ESPNLeagueProbe, team: ESPNTeamSummary) {
+        guard let context = modelContext else { return }
+        let franchiseId = String(team.teamId)
+        let existing = ((try? context.fetch(FetchDescriptor<LinkedFranchise>())) ?? []).first {
+            LinkedFranchise.matches(
+                $0,
+                provider: .espn,
+                leagueId: probe.leagueId,
+                franchiseId: franchiseId
+            )
+        }
+        let linked: LinkedFranchise
+        if let existing {
+            existing.leagueName = probe.name
+            existing.franchiseName = team.name
+            existing.season = probe.season
+            existing.providerRaw = LeagueProvider.espn.rawValue
+            existing.host = ESPNClient.host
+            existing.sleeperUserId = ""
+            existing.updatedAt = .now
+            linked = existing
+        } else {
+            linked = LinkedFranchise(
+                leagueId: probe.leagueId,
+                leagueName: probe.name,
+                franchiseId: franchiseId,
+                franchiseName: team.name,
+                host: ESPNClient.host,
+                season: probe.season,
+                provider: .espn
+            )
+            context.insert(linked)
+        }
+        try? context.save()
+        activateLinked(linked)
+        showConnect = false
+        log("Linked ESPN \(probe.name)")
+        Task {
+            await syncTeam()
+            await syncLeagueReview()
+        }
+    }
+
     func selectLeague(_ league: MFLLeagueSummary) {
         guard let context = modelContext else { return }
         let existing = ((try? context.fetch(FetchDescriptor<LinkedFranchise>())) ?? []).first {
@@ -812,6 +925,10 @@ final class AppState: ObservableObject {
             errorMessage = "Sleeper is read-only in Sideline — set your lineup in the Sleeper app."
             return
         }
+        if linked.isESPN {
+            errorMessage = "ESPN is read-only in Sideline — set your lineup in the ESPN app."
+            return
+        }
         isSyncing = true
         defer { isSyncing = false }
         do {
@@ -882,6 +999,8 @@ final class AppState: ObservableObject {
                 }
             } else if needsLeagueIntel, linkedFranchise?.isSleeper == true {
                 pushAgentActivity("Sleeper league — skipping MFL strength model")
+            } else if needsLeagueIntel, linkedFranchise?.isESPN == true {
+                pushAgentActivity("ESPN league — skipping MFL strength model")
             }
 
             var playerResearch: String?
@@ -1065,6 +1184,11 @@ final class AppState: ObservableObject {
                 "Sleeper leagues are read-only in Sideline. Approve keeps the plan here — apply lineup / waivers / trades in the Sleeper app."
             )
         }
+        if linked.isESPN {
+            throw MFLError.decode(
+                "ESPN leagues are read-only in Sideline. Approve keeps the plan here — apply lineup / waivers / trades in the ESPN app."
+            )
+        }
         let data = Data(proposal.payloadJSON.utf8)
         switch proposal.kind {
         case .lineup:
@@ -1113,6 +1237,15 @@ final class AppState: ObservableObject {
                 list = list.filter { $0.position.uppercased() == position.uppercased() }
             }
             return Array(list.prefix(limit))
+        }
+        if linked.isESPN {
+            let week = team?.week ?? selectedWeek
+            return try await ESPNTeamSyncService.freeAgents(
+                linked: linked,
+                week: max(1, week),
+                limit: limit,
+                position: position
+            )
         }
         let week = team?.week ?? selectedWeek
         let lastWeek = max(1, week - 1)
@@ -1344,6 +1477,23 @@ final class AppState: ObservableObject {
             salaryCapAmount: 200_000_000,
             rawNotes: nil
         )
+        let scoring = ScoringRules(
+            lines: [
+                .init(label: "Pass TD", points: 4),
+                .init(label: "Pass YD", points: 0.04),
+                .init(label: "INT thrown", points: -2),
+                .init(label: "Rush TD", points: 6),
+                .init(label: "Rush YD", points: 0.1),
+                .init(label: "Reception", points: 1),
+                .init(label: "Rec YD", points: 0.1),
+                .init(label: "Rec TD", points: 6),
+                .init(label: "Fumble lost", points: -2),
+                .init(label: "FG 40-49", points: 4),
+                .init(label: "FG 50+", points: 5),
+                .init(label: "XP made", points: 1)
+            ],
+            formatHint: "PPR"
+        )
 
         func player(
             id: String,
@@ -1418,6 +1568,7 @@ final class AppState: ObservableObject {
                 lineupDeadline: nil
             ),
             leagueRules: rules,
+            scoringRules: scoring,
             totalSalary: totalSalary,
             syncedAt: .now
         )

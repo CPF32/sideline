@@ -90,11 +90,12 @@ struct AnalysisView: View {
                 .font(BrandTheme.body(16, weight: .semibold))
                 .foregroundStyle(BrandTheme.ink)
                 .multilineTextAlignment(.center)
-            Text("Add The Odds API key to load pass/rush/receiving lines and anytime TDs for players on your team.")
+            Text("Add an Odds API key to load pass/rush/receiving lines and anytime TDs for players on your team. Free keys are at the-odds-api.com — this is separate from your LLM / OpenAI key.")
                 .font(BrandTheme.body(14))
                 .foregroundStyle(BrandTheme.muted)
                 .multilineTextAlignment(.center)
-            Button("Open APIs settings") {
+            Button("Add Odds API key") {
+                appState.settingsPath = [.apis, .oddsAPI]
                 appState.selectedTab = .settings
             }
             .buttonStyle(PrimaryButtonStyle())

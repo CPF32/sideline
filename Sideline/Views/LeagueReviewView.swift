@@ -37,7 +37,7 @@ struct LeagueReviewView: View {
                             .sidelinePullRefreshReader()
                         }
                         .sidelinePullToRefresh {
-                            await appState.syncLeagueReview()
+                            await appState.syncLeagueReview(revalidatePublic: true)
                         }
                     }
                 }

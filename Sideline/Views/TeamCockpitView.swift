@@ -40,7 +40,7 @@ struct TeamCockpitView: View {
                     .sidelinePullRefreshReader()
                 }
                 .sidelinePullToRefresh {
-                    await appState.syncTeam()
+                    await appState.syncTeam(revalidatePublic: true)
                 }
 
                 if showApprovalsSnackbar {
@@ -559,6 +559,14 @@ struct TeamCockpitView: View {
                     .font(BrandTheme.body(11, weight: .medium))
                     .foregroundStyle(BrandTheme.muted)
             }
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(BrandTheme.finalPoints)
+                    .frame(width: 6, height: 6)
+                Text("final")
+                    .font(BrandTheme.body(11, weight: .medium))
+                    .foregroundStyle(BrandTheme.muted)
+            }
         }
     }
 
@@ -626,7 +634,7 @@ struct PlayerRow: View {
                                 .font(BrandTheme.mono(14, weight: .medium))
                                 .foregroundStyle(BrandTheme.ink)
                             Circle()
-                                .fill(points.isLive ? BrandTheme.accent : BrandTheme.muted.opacity(0.55))
+                                .fill(points.kind.dotColor)
                                 .frame(width: 7, height: 7)
                         }
                     }

@@ -65,7 +65,7 @@ struct SettingsView: View {
     ]
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $appState.settingsPath) {
             ZStack {
                 SidelineBackground()
                 GeometryReader { geo in
@@ -118,6 +118,11 @@ struct SettingsView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("You’ll need to sign in again to use the app.")
+            }
+        }
+        .onChange(of: appState.selectedTab) { _, tab in
+            if tab != .settings {
+                appState.settingsPath = []
             }
         }
     }

@@ -40,6 +40,8 @@ enum BrandTheme {
     static let accent = Color(hex: "B8F000")
     /// Always dark — use on lime accent fills (buttons, banners, chips).
     static let onAccent = Color(hex: "1A1C1A")
+    /// Final / completed-game points indicator (roster dots).
+    static let finalPoints = Color.adaptive(light: "2F6FED", dark: "6B9FFF")
     static let danger = Color.adaptive(light: "B33A2E", dark: "F07166")
     static let standingsUp = Color.adaptive(light: "2F7D4A", dark: "6DD492")
     static let standingsDown = Color.adaptive(light: "B33A2E", dark: "F07166")

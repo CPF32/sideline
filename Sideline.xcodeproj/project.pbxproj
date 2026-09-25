@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		2662E8B937DD4A729A361AE9 /* SidelinePublicClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688C030B317442A187A68AB5 /* SidelinePublicClient.swift */; };
+		1DEDC61A9A2A4FC8A798DE32 /* ESPNClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3CBF0EE19BB4208B2141FE8 /* ESPNClient.swift */; };
+		BB9702BE517D44E383702571 /* ESPNTeamSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19609CB195CF4387BDCC7EA6 /* ESPNTeamSyncService.swift */; };
+		8230055300E144739A63C179 /* ConnectESPNView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F86194B16814499681051235 /* ConnectESPNView.swift */; };
 		058E3C5B648719249786BB44 /* LiveActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF10F712DC21E6A0DC43EE83 /* LiveActivityManager.swift */; };
 		0A7130194D89BF33DEB5C273 /* APIKeyCameraScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 649BA86FF36BAFA4B3D9D61F /* APIKeyCameraScanner.swift */; };
 		20B6DCEB6D65227383E1308A /* AgentCriteria.swift in Sources */ = {isa = PBXBuildFile; fileRef = C656CD9CBF0F66E5BCB185BB /* AgentCriteria.swift */; };
@@ -27,6 +31,7 @@
 		7557E826ED82BDFA3E9841D5 /* SidelineLiveActivity.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5A9668E42D7705156374D8C4 /* SidelineLiveActivity.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		77A04117057E77764C497DB1 /* MFLMatchupScores.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC829C37FB16380A5B98E4E /* MFLMatchupScores.swift */; };
 		7A1BEF8F61FED4ACCA9C4C95 /* LeagueRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE320A39FE0CDF44F4338B0A /* LeagueRules.swift */; };
+		8B2C0E1A72FED4ACCA9C4D01 /* ScoringRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF431B4A0F0CDF44F4338B1B /* ScoringRules.swift */; };
 		7BF62DA5B113CA5E241FEC4F /* NFLScheduleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 013004612A28FB6C966A746B /* NFLScheduleService.swift */; };
 		7C7879BFFF6B0659FC73039B /* AgentChatToolkit.swift in Sources */ = {isa = PBXBuildFile; fileRef = D33F4E0A94139064251B67DE /* AgentChatToolkit.swift */; };
 		7D99EAABBC08F8BBCE4CBA0C /* WeekSummaryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD840BFF0F39B064B3970E0B /* WeekSummaryService.swift */; };
@@ -102,6 +107,10 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		688C030B317442A187A68AB5 /* SidelinePublicClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidelinePublicClient.swift; sourceTree = "<group>"; };
+		F3CBF0EE19BB4208B2141FE8 /* ESPNClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ESPNClient.swift; sourceTree = "<group>"; };
+		19609CB195CF4387BDCC7EA6 /* ESPNTeamSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ESPNTeamSyncService.swift; sourceTree = "<group>"; };
+		F86194B16814499681051235 /* ConnectESPNView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectESPNView.swift; sourceTree = "<group>"; };
 		013004612A28FB6C966A746B /* NFLScheduleService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NFLScheduleService.swift; sourceTree = "<group>"; };
 		01A06CECD790DDA95EF216EF /* WeekSummaryCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekSummaryCard.swift; sourceTree = "<group>"; };
 		0317AFE36072EAF6F2125814 /* PlayerDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerDetail.swift; sourceTree = "<group>"; };
@@ -169,6 +178,7 @@
 		E8C5EB80DD66A52E7C1F1E66 /* OddsPropLineLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OddsPropLineLabel.swift; sourceTree = "<group>"; };
 		E9289250F2105B27FE87705C /* OddsIntelService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OddsIntelService.swift; sourceTree = "<group>"; };
 		EE320A39FE0CDF44F4338B0A /* LeagueRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeagueRules.swift; sourceTree = "<group>"; };
+		FF431B4A0F0CDF44F4338B1B /* ScoringRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoringRules.swift; sourceTree = "<group>"; };
 		EE5EDFB483814E19EF17FF18 /* LiveActivityPushClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityPushClient.swift; sourceTree = "<group>"; };
 		EF10F712DC21E6A0DC43EE83 /* LiveActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityManager.swift; sourceTree = "<group>"; };
 		F5610B6ABBCB292364C14EF1 /* SidelineApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidelineApp.swift; sourceTree = "<group>"; };
@@ -223,6 +233,7 @@
 				C6185794E47A03B1DF0DA980 /* KeychainStore.swift */,
 				D68145CB20DC6477ACA216D7 /* LeagueReviewService.swift */,
 				EE320A39FE0CDF44F4338B0A /* LeagueRules.swift */,
+				FF431B4A0F0CDF44F4338B1B /* ScoringRules.swift */,
 				2880B065585DEF7771699878 /* LeagueStrengthService.swift */,
 				E416E8C06FAE2B92AD8135A0 /* LineupFeasibility.swift */,
 				EF10F712DC21E6A0DC43EE83 /* LiveActivityManager.swift */,
@@ -234,12 +245,15 @@
 				9AC829C37FB16380A5B98E4E /* MFLMatchupScores.swift */,
 				DA04F64A9D14C7DDEABF6A65 /* MFLNameResolver.swift */,
 				CCA13B1CEC445C6E31F3CBBE /* MFLPlayerResearchService.swift */,
+				688C030B317442A187A68AB5 /* SidelinePublicClient.swift */,
 				013004612A28FB6C966A746B /* NFLScheduleService.swift */,
 				B196327E49A3A4C21333C742 /* OddsAPIClient.swift */,
 				E9289250F2105B27FE87705C /* OddsIntelService.swift */,
 				A65D35152E216D58DA726F82 /* PlayerIDCrosswalk.swift */,
 				07F9890C029DADC2E9FDBE61 /* RosterPositionGrouping.swift */,
 				DE4E04B1E8A1B4E3A3DF8A10 /* ScreenshotDemo.swift */,
+				F3CBF0EE19BB4208B2141FE8 /* ESPNClient.swift */,
+				19609CB195CF4387BDCC7EA6 /* ESPNTeamSyncService.swift */,
 				2BCE6BEDDD7BCDBE9B79267D /* SleeperClient.swift */,
 				B86EB965C67D971D801CC2BD /* SleeperPlayerCatalog.swift */,
 				12BC9EB1A4D92E5CD5E8B645 /* SleeperTeamSyncService.swift */,
@@ -296,6 +310,7 @@
 				C80D5FB097DF0B5D9ED21CCC /* ApprovalsView.swift */,
 				BD98978F2B03430C8D77307E /* ConnectLeagueHubView.swift */,
 				8292AAE5F308E3B127029584 /* ConnectMFLView.swift */,
+				F86194B16814499681051235 /* ConnectESPNView.swift */,
 				D8861C59B9FEC6C456B122D0 /* ConnectSleeperView.swift */,
 				586D7CFDD99DC727829B91F4 /* LeaguePageHeader.swift */,
 				35AF1AD88214CCD187E74A45 /* LeagueReviewView.swift */,
@@ -431,6 +446,7 @@
 				FAD88FC93FA3393973CD470D /* BrandTheme.swift in Sources */,
 				BB8CB7E0AAD273EE8C731832 /* ConnectLeagueHubView.swift in Sources */,
 				8DE4CDCE5361134F77028C14 /* ConnectMFLView.swift in Sources */,
+				8230055300E144739A63C179 /* ConnectESPNView.swift in Sources */,
 				A2F595700443CBBD9A266C4F /* ConnectSleeperView.swift in Sources */,
 				AD0CD2A776C2C1C0038B0294 /* DataCache.swift in Sources */,
 				91279BA46DBA30517F59A6C2 /* FantasyProsClient.swift in Sources */,
@@ -443,6 +459,7 @@
 				F84BFC8F598C7C2D82702AAE /* LeagueReviewService.swift in Sources */,
 				B0F3DE9F3107987BFD9A088C /* LeagueReviewView.swift in Sources */,
 				7A1BEF8F61FED4ACCA9C4C95 /* LeagueRules.swift in Sources */,
+				8B2C0E1A72FED4ACCA9C4D01 /* ScoringRules.swift in Sources */,
 				F7355D658D353083ADBB86A7 /* LeagueStrengthService.swift in Sources */,
 				D5BE28975D2AD63779CBCA4B /* LineupFeasibility.swift in Sources */,
 				058E3C5B648719249786BB44 /* LiveActivityManager.swift in Sources */,
@@ -455,6 +472,7 @@
 				B773158DA77CBF2DB6C4C377 /* MatchupLiveActivityAttributes.swift in Sources */,
 				FAE4E00339274251B946E294 /* CycleLiveActivityLeagueIntent.swift in Sources */,
 				E5C1A136AE2E779B9B30E3B7 /* Models.swift in Sources */,
+				2662E8B937DD4A729A361AE9 /* SidelinePublicClient.swift in Sources */,
 				7BF62DA5B113CA5E241FEC4F /* NFLScheduleService.swift in Sources */,
 				4F7B21B667FC2F9DA11F10DA /* OddsAPIClient.swift in Sources */,
 				8786F30E2C17B9DCA545450B /* OddsIntelService.swift in Sources */,
@@ -470,6 +488,8 @@
 				572650BE016F2C0FB6F25795 /* SidelineApp.swift in Sources */,
 				FF6540DC6B18FDD42E30F26D /* SidelineNavTitle.swift in Sources */,
 				A0879E9A3FDDE623CCC8C202 /* SidelinePullToRefresh.swift in Sources */,
+				1DEDC61A9A2A4FC8A798DE32 /* ESPNClient.swift in Sources */,
+				BB9702BE517D44E383702571 /* ESPNTeamSyncService.swift in Sources */,
 				E6675426CF48C012ABCDB3F5 /* SleeperClient.swift in Sources */,
 				992DE15BA73153FC149A0AB1 /* SleeperPlayerCatalog.swift in Sources */,
 				42F87C3E85236AC1A843C271 /* SleeperTeamSyncService.swift in Sources */,

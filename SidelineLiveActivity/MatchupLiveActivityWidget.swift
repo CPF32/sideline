@@ -35,17 +35,19 @@ struct MatchupLiveActivityWidget: Widget {
                         .lineLimit(1)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        playerCycleRow(state: context.state)
                         HStack {
                             Text(context.state.statusLine)
                                 .font(.caption2)
                                 .foregroundStyle(.white.opacity(0.7))
                                 .lineLimit(1)
-                            Spacer()
-                            syncCountdown(context.state)
-                        }
-                        if !context.state.playerLines.isEmpty {
-                            playerTicker(lines: context.state.playerLines)
+                            Spacer(minLength: 8)
+                            verticalCycle(
+                                lines: context.state.nflGameLines,
+                                alignment: .trailing,
+                                empty: "—"
+                            )
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -102,53 +104,75 @@ struct MatchupLiveActivityWidget: Widget {
                 }
             }
 
-            if !context.state.playerLines.isEmpty {
-                playerTicker(lines: context.state.playerLines)
-            }
+            playerCycleRow(state: context.state)
 
             HStack {
                 Text(context.state.statusLine)
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(0.5))
                     .lineLimit(1)
-                Spacer()
-                syncCountdown(context.state)
+                Spacer(minLength: 8)
+                verticalCycle(
+                    lines: context.state.nflGameLines,
+                    alignment: .trailing,
+                    empty: "—"
+                )
             }
         }
         .padding(16)
-        // Lock Screen Live Activities get clipped around ~160pt — keep the shell compact.
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Continuous horizontal score ticker (no manual scroll). Driven by TimelineView so
-    /// it keeps moving without ActivityKit updates.
-    private func playerTicker(lines: [String]) -> some View {
-        let unit = lines.prefix(10).joined(separator: "   ·   ") + "   ·   "
-        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { context in
-            GeometryReader { geo in
-                let speed: CGFloat = 38
-                // Monospaced caption ≈ 6.2pt/char — good enough for seamless wrap.
-                let contentWidth = max(CGFloat(unit.count) * 6.2, geo.size.width + 1)
-                let distance = CGFloat(context.date.timeIntervalSinceReferenceDate) * speed
-                let offset = -(distance.truncatingRemainder(dividingBy: contentWidth))
-
-                HStack(spacing: 0) {
-                    Text(unit)
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.white.opacity(0.9))
-                        .fixedSize(horizontal: true, vertical: false)
-                    Text(unit)
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.white.opacity(0.9))
-                        .fixedSize(horizontal: true, vertical: false)
-                }
-                .offset(x: offset)
-                .frame(width: geo.size.width, height: geo.size.height, alignment: .leading)
-            }
+    private func playerCycleRow(state: MatchupLiveAttributes.ContentState) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            verticalCycle(
+                lines: state.resolvedMyPlayerLines,
+                alignment: .leading,
+                empty: "—"
+            )
+            Spacer(minLength: 8)
+            verticalCycle(
+                lines: state.oppPlayerLines,
+                alignment: .trailing,
+                empty: "—"
+            )
         }
-        .frame(height: 16)
-        .clipped()
-        .accessibilityLabel(lines.joined(separator: ", "))
+        .frame(height: 18)
+    }
+
+    /// Cycles lines every 1.5s with a top→bottom push transition.
+    private func verticalCycle(
+        lines: [String],
+        alignment: Alignment,
+        empty: String
+    ) -> some View {
+        let interval = MatchupLiveSyncSchedule.cycleSeconds
+        return TimelineView(.periodic(from: .now, by: interval)) { context in
+            let idx: Int = {
+                guard !lines.isEmpty else { return 0 }
+                return Int(context.date.timeIntervalSince1970 / interval) % lines.count
+            }()
+            let text = lines.isEmpty ? empty : lines[idx]
+            ZStack(alignment: alignment) {
+                Text(text)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.9))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .id(text)
+                    .transition(
+                        .asymmetric(
+                            insertion: .move(edge: .top).combined(with: .opacity),
+                            removal: .move(edge: .bottom).combined(with: .opacity)
+                        )
+                    )
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+            .clipped()
+            .animation(.easeInOut(duration: 0.4), value: text)
+        }
+        .frame(height: 18)
+        .accessibilityLabel(lines.isEmpty ? empty : lines.joined(separator: ", "))
     }
 
     @ViewBuilder
@@ -176,37 +200,6 @@ struct MatchupLiveActivityWidget: Widget {
         }
     }
 
-    /// Countdown to the next refresh. Uses TimelineView so when the push is late
-    /// we can leave 0:00 and show a waiting ellipsis instead of a stuck timer.
-    @ViewBuilder
-    private func syncCountdown(_ state: MatchupLiveAttributes.ContentState) -> some View {
-        if let next = state.nextSyncAt, next > state.lastUpdated {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                let now = context.date.timeIntervalSince1970
-                HStack(spacing: 3) {
-                    Image(systemName: "arrow.clockwise")
-                    if next > now {
-                        Text(
-                            timerInterval: Date(timeIntervalSince1970: state.lastUpdated)...Date(timeIntervalSince1970: next),
-                            countsDown: true
-                        )
-                        .monospacedDigit()
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 34, alignment: .trailing)
-                    } else {
-                        // Push is overdue — don't sit on 0:00 until the update lands.
-                        Text("…")
-                            .monospacedDigit()
-                            .frame(width: 34, alignment: .trailing)
-                    }
-                }
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(0.5))
-                .accessibilityLabel(next > now ? "Next refresh" : "Refresh due")
-            }
-        }
-    }
-
     private func leagueName(_ context: ActivityViewContext<MatchupLiveAttributes>) -> String {
         displayName(
             state: context.state.leagueName,
@@ -231,8 +224,6 @@ struct MatchupLiveActivityWidget: Widget {
         )
     }
 
-    /// Prefer ContentState. Once a league switch has written `leagueLinkId`, never fall
-    /// back to immutable attributes — those stay locked to the league that started the Activity.
     private func displayName(state: String, attributes: String, leagueLinkId: String) -> String {
         if !state.isEmpty { return state }
         if !leagueLinkId.isEmpty { return state }

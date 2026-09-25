@@ -19,14 +19,18 @@ actor SleeperPlayerCatalog {
             .appendingPathComponent("sideline-sleeper-players-nfl.json")
     }
 
-    func ensureLoaded() async {
-        if let loadedAt, Date().timeIntervalSince(loadedAt) < maxAge, !byId.isEmpty {
+    func ensureLoaded(revalidate: Bool = false) async {
+        if !revalidate,
+           let loadedAt,
+           Date().timeIntervalSince(loadedAt) < maxAge,
+           !byId.isEmpty {
             lastStatus = "\(byId.count) players cached"
             return
         }
 
         // Prefer on-disk cache (avoids re-downloading ~10MB on every cold start).
-        if let attrs = try? FileManager.default.attributesOfItem(atPath: diskURL.path),
+        if !revalidate,
+           let attrs = try? FileManager.default.attributesOfItem(atPath: diskURL.path),
            let modified = attrs[.modificationDate] as? Date,
            Date().timeIntervalSince(modified) < maxAge,
            let data = try? Data(contentsOf: diskURL),
@@ -39,7 +43,7 @@ actor SleeperPlayerCatalog {
         }
 
         do {
-            let data = try await SleeperClient.shared.allPlayers()
+            let data = try await SleeperClient.shared.allPlayers(revalidate: revalidate)
             ingest(data)
             if !byId.isEmpty {
                 try? data.write(to: diskURL, options: .atomic)

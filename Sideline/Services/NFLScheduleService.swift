@@ -10,25 +10,45 @@ struct NFLGameInfo: Hashable {
 }
 
 enum NFLScheduleService {
-    static func fetchData(season: Int, week: Int, hasLiveGames: Bool = false) async throws -> Data {
+    static func fetchData(
+        season: Int,
+        week: Int,
+        hasLiveGames: Bool = false,
+        revalidate: Bool = false
+    ) async throws -> Data {
         let key = "nflSchedule:\(season):\(week)"
         let policy: DataCache.Policy = .liveAware(hasLiveGames: hasLiveGames)
+        if revalidate {
+            await DataCache.shared.remove(key)
+        }
         return try await DataCache.shared.data(key: key, policy: policy, persistToDisk: true) {
-            let url = URL(string: "https://api.myfantasyleague.com/\(season)/export?TYPE=nflSchedule&W=\(week)&JSON=1")!
-            var request = URLRequest(url: url)
-            request.setValue(MFLClient.userAgent, forHTTPHeaderField: "User-Agent")
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                throw URLError(.badServerResponse)
+            try await SidelinePublicClient.data(
+                path: "/v1/public/nfl-schedule",
+                query: ["season": String(season), "week": String(week)],
+                revalidate: revalidate,
+                timeout: 30
+            ) {
+                let url = URL(string: "https://api.myfantasyleague.com/\(season)/export?TYPE=nflSchedule&W=\(week)&JSON=1")!
+                var request = URLRequest(url: url)
+                request.setValue(MFLClient.userAgent, forHTTPHeaderField: "User-Agent")
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                    throw URLError(.badServerResponse)
+                }
+                return data
             }
-            return data
         }
     }
 
     /// Fetches MFL `TYPE=nflSchedule` for a week and maps each NFL team → game info.
-    static func teamGames(season: Int, week: Int, now: Date = .now) async -> [String: NFLGameInfo] {
+    static func teamGames(
+        season: Int,
+        week: Int,
+        now: Date = .now,
+        revalidate: Bool = false
+    ) async -> [String: NFLGameInfo] {
         let key = "nflSchedule:\(season):\(week)"
-        if let cached = await DataCache.shared.get(key, policy: .standard) {
+        if !revalidate, let cached = await DataCache.shared.get(key, policy: .standard) {
             let map = parse(cached, now: now)
             let hasLive = map.values.contains { $0.lockState == "started" }
             if hasLive, (await DataCache.shared.age(of: key) ?? .infinity) >= 60 {
@@ -39,7 +59,12 @@ enum NFLScheduleService {
             }
             return map
         }
-        guard let data = try? await fetchData(season: season, week: week, hasLiveGames: false) else {
+        guard let data = try? await fetchData(
+            season: season,
+            week: week,
+            hasLiveGames: false,
+            revalidate: revalidate
+        ) else {
             return [:]
         }
         return parse(data, now: now)

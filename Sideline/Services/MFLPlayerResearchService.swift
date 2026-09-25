@@ -3,8 +3,9 @@ import Foundation
 /// Pulls MFL playerProfile (+ ranks/trending when available) for recommendation analysis
 /// and the on-roster player detail sheet.
 ///
-/// Note: MFL does **not** expose third-party injury/news wire copy through the public API.
-/// We surface bio (age/height/weight/ADP), MFL ranks/trending, and the league `injuries` feed.
+/// Public bio + optional MFL-embedded news articles come from global `playerProfile`
+/// (and DETAILS) via the Sideline Worker cache when possible. League-scoped ranks /
+/// top-adds / injuries still hit MFL from the device (need `L=` + session).
 enum MFLPlayerResearchService {
     static func fetchDetail(
         playerId: String,
@@ -43,7 +44,7 @@ enum MFLPlayerResearchService {
 
         let details = await loadDetails(playerIds: ids, linked: linked, maxPlayers: maxPlayers)
         var blocks: [String] = [
-            "MFL PLAYER RESEARCH (bio / rank / injury status — MFL has no news wire):"
+            "MFL PLAYER RESEARCH (bio / news / rank / injury):"
         ]
         for id in ids {
             let p = details[id] ?? details[MFLNameResolver.normalizePlayerId(id)]
@@ -87,20 +88,8 @@ enum MFLPlayerResearchService {
         guard !ids.isEmpty else { return [:] }
         let idList = ids.joined(separator: ",")
 
-        // playerProfile is a global export (api host, no L) — league-host + L often returns empty.
-        async let profilesData = try? await MFLClient.shared.exportGlobalJSON(
-            season: linked.season,
-            type: "playerProfile",
-            extra: ["P": idList],
-            cacheTTL: 600
-        )
-        // players DETAILS fills height/weight/birthdate when profile is thin.
-        async let playersData = try? await MFLClient.shared.exportGlobalJSON(
-            season: linked.season,
-            type: "players",
-            extra: ["DETAILS": "1", "PLAYERS": idList],
-            cacheTTL: 86_400
-        )
+        // Public bio + news via Sideline Worker (falls back to MFL). League ranks stay direct.
+        async let intelRaw = try? await fetchPublicIntel(season: linked.season, ids: idList)
         async let ranksData = try? await MFLClient.shared.exportJSON(
             host: linked.host,
             season: linked.season,
@@ -123,20 +112,23 @@ enum MFLPlayerResearchService {
             cacheTTL: 300
         )
 
-        let (profilesRaw, playersRaw, ranksRaw, topAddsRaw, injuriesRaw) = await (
-            profilesData, playersData, ranksData, topAddsData, injuriesData
+        let (intel, ranksRaw, topAddsRaw, injuriesRaw) = await (
+            intelRaw, ranksData, topAddsData, injuriesData
         )
 
-        var profiles = profilesRaw.map { parseProfiles($0) } ?? [:]
-        let playerBios = playersRaw.map { parsePlayersDetails($0) } ?? [:]
-        for (id, bio) in playerBios {
-            var merged = profiles[id] ?? Profile()
-            if merged.name == nil { merged.name = bio.name }
-            if merged.age == nil { merged.age = bio.age }
-            if merged.dob == nil { merged.dob = bio.dob }
-            if merged.height == nil { merged.height = bio.height }
-            if merged.weight == nil { merged.weight = bio.weight }
-            profiles[id] = merged
+        var profiles: [String: Profile] = [:]
+        if let intel {
+            profiles = parseProfiles(intel)
+            let playerBios = parsePlayersDetails(intel)
+            for (id, bio) in playerBios {
+                var merged = profiles[id] ?? Profile()
+                if merged.name == nil { merged.name = bio.name }
+                if merged.age == nil { merged.age = bio.age }
+                if merged.dob == nil { merged.dob = bio.dob }
+                if merged.height == nil { merged.height = bio.height }
+                if merged.weight == nil { merged.weight = bio.weight }
+                profiles[id] = merged
+            }
         }
 
         let ranks = ranksRaw.map { parseRankMap($0) } ?? [:]
@@ -164,6 +156,81 @@ enum MFLPlayerResearchService {
             out[MFLNameResolver.normalizePlayerId(id)] = detail
         }
         return out
+    }
+
+    /// Combined Worker payload: `{ playerProfile, players }` — same shapes as MFL exports.
+    /// Device L2 (`DataCache`) → Worker KV → MFL. TTL ~1h (bio/news); matches Worker profile TTL.
+    private static func fetchPublicIntel(season: Int, ids: String, revalidate: Bool = false) async throws -> Data {
+        let sortedIds = ids
+            .split(separator: ",")
+            .map { MFLNameResolver.normalizePlayerId(String($0)) }
+            .filter { !$0.isEmpty && $0 != "0000" }
+            .uniqued()
+            .sorted()
+            .joined(separator: ",")
+        let key = "mfl-intel:\(season):\(sortedIds)"
+        if revalidate {
+            await DataCache.shared.remove(key)
+        }
+        return try await DataCache.shared.data(key: key, policy: .standard, persistToDisk: true) {
+            try await SidelinePublicClient.data(
+                path: "/v1/public/mfl/player-intel",
+                query: ["season": String(season), "ids": sortedIds],
+                revalidate: revalidate,
+                timeout: 45
+            ) {
+                try await Self.fetchPublicIntelUpstream(season: season, ids: sortedIds)
+            }
+        }
+    }
+
+    /// MFL returns one profile/DETAILS row per request — mirror the Worker.
+    private static func fetchPublicIntelUpstream(season: Int, ids: String) async throws -> Data {
+        let idList = ids
+            .split(separator: ",")
+            .map { MFLNameResolver.normalizePlayerId(String($0)) }
+            .filter { !$0.isEmpty }
+        var profiles: [[String: Any]] = []
+        var details: [[String: Any]] = []
+        for id in idList {
+            if let profileData = try? await MFLClient.shared.exportGlobalJSON(
+                season: season,
+                type: "playerProfile",
+                extra: ["P": id],
+                cacheTTL: 600
+            ),
+               let root = try? JSONSerialization.jsonObject(with: profileData) as? [String: Any] {
+                if let one = root["playerProfile"] as? [String: Any] {
+                    profiles.append(one)
+                } else if let plural = root["playerProfiles"] as? [String: Any],
+                          let one = plural["playerProfile"] as? [String: Any] {
+                    profiles.append(one)
+                } else if let arr = (root["playerProfiles"] as? [String: Any])?["playerProfile"] as? [[String: Any]] {
+                    profiles.append(contentsOf: arr)
+                }
+            }
+            if let detailsData = try? await MFLClient.shared.exportGlobalJSON(
+                season: season,
+                type: "players",
+                extra: ["DETAILS": "1", "PLAYERS": id],
+                cacheTTL: 86_400
+            ),
+               let root = try? JSONSerialization.jsonObject(with: detailsData) as? [String: Any] {
+                let any = (root["players"] as? [String: Any])?["player"]
+                if let arr = any as? [[String: Any]] {
+                    details.append(contentsOf: arr)
+                } else if let one = any as? [String: Any] {
+                    details.append(one)
+                }
+            }
+        }
+        let wrapped: [String: Any] = [
+            "season": season,
+            "ids": idList,
+            "playerProfile": ["player": profiles],
+            "players": ["player": details],
+        ]
+        return try JSONSerialization.data(withJSONObject: wrapped)
     }
 
     // MARK: - Parsers
@@ -248,6 +315,7 @@ enum MFLPlayerResearchService {
         profile.adp = stringValue(player["adp"] ?? row["adp"])
 
         // Rare: some seasons embed short notes under news/article — not a full wire.
+        // Also handle empty `news: {}` and single-article object vs array.
         let newsRoot = (row["news"] as? [String: Any]) ?? (player["news"] as? [String: Any])
         let articlesAny = newsRoot?["article"]
         var items: [PlayerNewsItem] = []

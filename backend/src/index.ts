@@ -1,6 +1,17 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { pushLiveActivityUpdate } from "./apns";
+import {
+  handleMflPlayerIntel,
+  handleNflSchedule,
+  handleNflState,
+  handlePlayerIds,
+  handleSleeperMatchups,
+  handleSleeperPlayers,
+  isDailyCatalogCron,
+  refreshPublicCatalogs,
+  refreshPublicHot,
+} from "./publicCache";
 import { contentUnchanged, fetchLeague, leagueKey, snapshotFor, toContentState } from "./scores";
 import type { ApnsEnvironment, ContentState, Env, LiveSession, RegisterBody } from "./types";
 
@@ -8,7 +19,81 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.use("*", cors());
 
-app.get("/health", (c) => c.json({ ok: true, service: "sideline-live" }));
+app.get("/health", (c) =>
+  c.json({ ok: true, service: "sideline-live", publicCache: true, r2: true })
+);
+
+// --- Shared public cache (no auth; rate-limit by Cloudflare / IP at edge) ---
+
+app.get("/v1/public/nfl-schedule", async (c) => {
+  const season = Number(c.req.query("season"));
+  const week = Number(c.req.query("week"));
+  try {
+    return await handleNflSchedule(c.env, c.req.raw, season, week);
+  } catch (e) {
+    console.error("nfl-schedule", e instanceof Error ? e.message : e);
+    return c.json({ error: "upstream_failed" }, 502);
+  }
+});
+
+app.get("/v1/public/sleeper/nfl-state", async (c) => {
+  try {
+    return await handleNflState(c.env, c.req.raw);
+  } catch (e) {
+    console.error("nfl-state", e instanceof Error ? e.message : e);
+    return c.json({ error: "upstream_failed" }, 502);
+  }
+});
+
+app.get("/v1/public/sleeper/players", async (c) => {
+  try {
+    return await handleSleeperPlayers(c.env, c.req.raw);
+  } catch (e) {
+    console.error("sleeper-players", e instanceof Error ? e.message : e);
+    return c.json({ error: "upstream_failed" }, 502);
+  }
+});
+
+app.get("/v1/public/sleeper/matchups", async (c) => {
+  const leagueId = c.req.query("leagueId") ?? "";
+  const week = Number(c.req.query("week"));
+  try {
+    return await handleSleeperMatchups(c.env, c.req.raw, leagueId, week);
+  } catch (e) {
+    console.error("sleeper-matchups", e instanceof Error ? e.message : e);
+    return c.json({ error: "upstream_failed" }, 502);
+  }
+});
+
+app.get("/v1/public/player-ids", async (c) => {
+  try {
+    return await handlePlayerIds(c.env, c.req.raw);
+  } catch (e) {
+    console.error("player-ids", e instanceof Error ? e.message : e);
+    return c.json({ error: "upstream_failed" }, 502);
+  }
+});
+
+/** MFL public bio + news articles (playerProfile) and DETAILS (height/weight/dob). */
+app.get("/v1/public/mfl/player-intel", async (c) => {
+  const season = Number(c.req.query("season"));
+  const ids = c.req.query("ids") ?? "";
+  try {
+    return await handleMflPlayerIntel(c.env, c.req.raw, season, ids);
+  } catch (e) {
+    console.error("mfl-player-intel", e instanceof Error ? e.message : e);
+    return c.json({ error: "upstream_failed" }, 502);
+  }
+});
+
+/** Manual public-cache refresh (protected). */
+app.post("/v1/public/refresh", async (c) => {
+  if (unauthorized(c)) return c.json({ error: "unauthorized" }, 401);
+  const catalogs = c.req.query("catalogs") === "1";
+  const hot = await refreshPublicHot(c.env);
+  const catalogOk = catalogs ? await refreshPublicCatalogs(c.env) : false;
+  return c.json({ ok: true, ...hot, catalogs: catalogOk });
+});
 
 function unauthorized(c: { req: { header: (n: string) => string | undefined }; env: Env }) {
   const key = c.req.header("X-Sideline-Key") ?? "";
@@ -66,7 +151,7 @@ app.post("/v1/live-activity/register", async (c) => {
   if (!body.activityId || !body.pushToken || !body.leagueId || !body.franchiseId) {
     return c.json({ error: "missing fields" }, 400);
   }
-  if (body.provider !== "mfl" && body.provider !== "sleeper") {
+  if (body.provider !== "mfl" && body.provider !== "sleeper" && body.provider !== "espn") {
     return c.json({ error: "invalid provider" }, 400);
   }
   if (body.provider === "mfl" && (!body.host || !body.mflCookie)) {
@@ -90,6 +175,8 @@ app.post("/v1/live-activity/register", async (c) => {
     season: body.season,
     host: body.host,
     mflCookie: body.mflCookie,
+    espnS2: body.espnS2,
+    espnSwid: body.espnSwid,
     leagueName: body.leagueName,
     myTeamName: body.myTeamName,
     providerLabel: body.providerLabel,
@@ -97,6 +184,8 @@ app.post("/v1/live-activity/register", async (c) => {
     playerNames: body.playerNames,
     starterIds: body.starterIds,
     liveStarterIds: body.liveStarterIds,
+    oppLivePlayerLines: body.oppLivePlayerLines,
+    nflGameLines: body.nflGameLines,
     leagueLinkId: body.leagueLinkId,
     leagueCount: body.leagueCount,
     apnsEnvironment: preferredEnv,
@@ -260,9 +349,21 @@ app.post("/v1/live-activity/poll", async (c) => {
 
 export default {
   fetch: app.fetch,
-  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    if (isDailyCatalogCron(event.cron)) {
+      ctx.waitUntil(
+        refreshPublicCatalogs(env)
+          .then((ok) => console.log("cron catalogs", ok))
+          .catch((e) => console.error("cron catalogs fail", e))
+      );
+      return;
+    }
+
     ctx.waitUntil(
-      pollAll(env).then((r) => console.log("cron poll", r)).catch((e) => console.error("cron fail", e))
+      Promise.all([
+        pollAll(env).then((r) => console.log("cron poll", r)),
+        refreshPublicHot(env).then((r) => console.log("cron public", r)),
+      ]).catch((e) => console.error("cron fail", e))
     );
   },
 };

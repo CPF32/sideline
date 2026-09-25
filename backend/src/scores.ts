@@ -5,6 +5,9 @@ type ScoreSnapshot = {
   oppScore: number;
   opponentName: string;
   playerLines: string[];
+  myPlayerLines: string[];
+  oppPlayerLines: string[];
+  nflGameLines: string[];
   liveCount: number;
   finalCount: number;
 };
@@ -12,7 +15,8 @@ type ScoreSnapshot = {
 /** One league's live data, fetched once per tick and shared by every session in it. */
 export type LeagueData =
   | { provider: "sleeper"; matchups: Array<Record<string, unknown>> }
-  | { provider: "mfl"; franchises: Array<Record<string, unknown>> };
+  | { provider: "mfl"; franchises: Array<Record<string, unknown>> }
+  | { provider: "espn"; schedule: Array<Record<string, unknown>>; week: number };
 
 function mflHost(session: LiveSession): string {
   return (session.host ?? "").replace(/^https?:\/\//, "").replace(/\/+$/, "").toLowerCase();
@@ -20,19 +24,43 @@ function mflHost(session: LiveSession): string {
 
 /** Sessions with the same key read the same league/week and share one fetch. */
 export function leagueKey(session: LiveSession): string {
-  return session.provider === "sleeper"
-    ? `sleeper:${session.leagueId}:${session.week}`
-    : `mfl:${mflHost(session)}:${session.season}:${session.leagueId}:${session.week}`;
+  if (session.provider === "sleeper") {
+    return `sleeper:${session.leagueId}:${session.week}`;
+  }
+  if (session.provider === "espn") {
+    return `espn:${session.leagueId}:${session.season}:${session.week}`;
+  }
+  return `mfl:${mflHost(session)}:${session.season}:${session.leagueId}:${session.week}`;
 }
 
 /**
  * Fetches a league's live scores once for all of its sessions. MFL needs a
- * logged-in cookie, so try each member's cookie until one works.
+ * logged-in cookie, so try each member's cookie until one works. ESPN may need
+ * espn_s2 + SWID for private leagues.
  */
 export async function fetchLeague(sessions: LiveSession[]): Promise<LeagueData | null> {
   const first = sessions[0];
   if (!first) return null;
   if (first.provider === "sleeper") return fetchSleeper(first);
+  if (first.provider === "espn") {
+    const cookiePairs: Array<{ espnS2: string; espnSwid: string }> = [];
+    const seen = new Set<string>();
+    for (const s of sessions) {
+      const s2 = (s.espnS2 ?? "").trim();
+      const swid = (s.espnSwid ?? "").trim();
+      if (!s2 || !swid) continue;
+      const key = `${s2}|${swid}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      cookiePairs.push({ espnS2: s2, espnSwid: swid });
+    }
+    // Try authenticated cookies first, then public (no cookies).
+    for (const cookies of cookiePairs) {
+      const data = await fetchEspn(first, cookies);
+      if (data) return data;
+    }
+    return fetchEspn(first, null);
+  }
 
   const cookies = [...new Set(sessions.map((s) => s.mflCookie).filter((c): c is string => !!c))];
   for (const cookie of cookies) {
@@ -44,9 +72,9 @@ export async function fetchLeague(sessions: LiveSession[]): Promise<LeagueData |
 
 /** Pulls one session's matchup out of its league's shared data. */
 export function snapshotFor(session: LiveSession, league: LeagueData): ScoreSnapshot | null {
-  return league.provider === "sleeper"
-    ? sleeperSnapshot(session, league.matchups)
-    : mflSnapshot(session, league.franchises);
+  if (league.provider === "sleeper") return sleeperSnapshot(session, league.matchups);
+  if (league.provider === "espn") return espnSnapshot(session, league.schedule, league.week);
+  return mflSnapshot(session, league.franchises);
 }
 
 async function fetchSleeper(session: LiveSession): Promise<LeagueData | null> {
@@ -57,6 +85,137 @@ async function fetchSleeper(session: LiveSession): Promise<LeagueData | null> {
   if (!res.ok) return null;
   const matchups = (await res.json()) as Array<Record<string, unknown>> | null;
   return Array.isArray(matchups) ? { provider: "sleeper", matchups } : null;
+}
+
+function espnCookieHeader(cookies: { espnS2: string; espnSwid: string } | null): string | undefined {
+  if (!cookies) return undefined;
+  let swid = cookies.espnSwid.trim();
+  if (!swid.startsWith("{")) swid = `{${swid}`;
+  if (!swid.endsWith("}")) swid = `${swid}}`;
+  return `espn_s2=${cookies.espnS2.trim()}; SWID=${swid}`;
+}
+
+async function fetchEspn(
+  session: LiveSession,
+  cookies: { espnS2: string; espnSwid: string } | null
+): Promise<LeagueData | null> {
+  const base = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${session.season}/segments/0/leagues/${encodeURIComponent(session.leagueId)}`;
+  const qs = new URLSearchParams();
+  qs.append("view", "mMatchupScore");
+  qs.append("view", "mScoreboard");
+  qs.append("view", "mTeam");
+  qs.set("scoringPeriodId", String(session.week));
+  const headers: Record<string, string> = {
+    "User-Agent": "SidelineLive/1.0 (com.cpf32.sideline; backend)",
+    Accept: "application/json",
+    "X-Fantasy-Filter": JSON.stringify({
+      schedule: { filterMatchupPeriodIds: { value: [session.week] } },
+    }),
+  };
+  const cookie = espnCookieHeader(cookies);
+  if (cookie) headers.Cookie = cookie;
+
+  const res = await fetch(`${base}?${qs.toString()}`, { headers });
+  if (!res.ok) return null;
+  const root = (await res.json()) as Record<string, unknown>;
+  const scheduleRaw = root.schedule;
+  const schedule = Array.isArray(scheduleRaw)
+    ? (scheduleRaw as Array<Record<string, unknown>>)
+    : [];
+  return schedule.length > 0 ? { provider: "espn", schedule, week: session.week } : null;
+}
+
+function espnSideTeamId(side: unknown): number | null {
+  if (!side || typeof side !== "object") return null;
+  const id = (side as Record<string, unknown>).teamId;
+  const n = Number(id);
+  return Number.isFinite(n) ? n : null;
+}
+
+function espnSideScore(side: unknown): number {
+  if (!side || typeof side !== "object") return 0;
+  const s = side as Record<string, unknown>;
+  const live = Number(s.totalPointsLive);
+  if (Number.isFinite(live)) return live;
+  const total = Number(s.totalPoints);
+  if (Number.isFinite(total)) return total;
+  const roster = s.rosterForCurrentScoringPeriod as Record<string, unknown> | undefined;
+  const applied = Number(roster?.appliedStatTotal);
+  return Number.isFinite(applied) ? applied : 0;
+}
+
+function espnPlayerLinesFromSide(
+  side: unknown,
+  session: LiveSession
+): string[] {
+  if (!side || typeof side !== "object") return [];
+  const s = side as Record<string, unknown>;
+  const roster =
+    (s.rosterForCurrentScoringPeriod as Record<string, unknown> | undefined) ??
+    (s.roster as Record<string, unknown> | undefined);
+  const entriesRaw = roster?.entries;
+  const entries = Array.isArray(entriesRaw)
+    ? (entriesRaw as Array<Record<string, unknown>>)
+    : [];
+  const liveIds = new Set((session.liveStarterIds ?? []).map(String).filter((id) => id.length > 0));
+  const names = session.playerNames ?? {};
+
+  const scored = entries
+    .map((entry) => {
+      const slot = Number(entry.lineupSlotId ?? 20);
+      // 20 = bench, 21 = IR
+      if (slot === 20 || slot === 21) return null;
+      const pid = String(entry.playerId ?? "");
+      if (!pid) return null;
+      if (liveIds.size > 0 && !liveIds.has(pid)) return null;
+      const pool = entry.playerPoolEntry as Record<string, unknown> | undefined;
+      const player = (pool?.player as Record<string, unknown> | undefined) ?? {};
+      const name =
+        names[pid] ||
+        String(player.fullName ?? names[pid] ?? `Player ${pid}`);
+      const pts = Number(pool?.appliedStatTotal ?? 0);
+      return { name, pts };
+    })
+    .filter((x): x is { name: string; pts: number } => !!x)
+    .sort((a, b) => b.pts - a.pts)
+    .slice(0, 10)
+    .map((p) => `${p.name}  ${p.pts.toFixed(1)}`);
+
+  return scored;
+}
+
+function espnSnapshot(
+  session: LiveSession,
+  schedule: Array<Record<string, unknown>>,
+  week: number
+): ScoreSnapshot | null {
+  const teamId = Number(session.franchiseId);
+  const row = schedule.find((m) => {
+    const period = Number(m.matchupPeriodId ?? m.scoringPeriodId);
+    if (period !== week) return false;
+    return espnSideTeamId(m.home) === teamId || espnSideTeamId(m.away) === teamId;
+  });
+  if (!row) return null;
+
+  const homeId = espnSideTeamId(row.home);
+  const mineIsHome = homeId === teamId;
+  const mySide = mineIsHome ? row.home : row.away;
+  const oppSide = mineIsHome ? row.away : row.home;
+
+  const myPlayerLines = espnPlayerLinesFromSide(mySide, session);
+  const oppPlayerLines = (session.oppLivePlayerLines ?? []).slice(0, 10);
+
+  return {
+    myScore: espnSideScore(mySide),
+    oppScore: espnSideScore(oppSide),
+    opponentName: session.opponentName || "Opponent",
+    playerLines: myPlayerLines,
+    myPlayerLines,
+    oppPlayerLines,
+    nflGameLines: (session.nflGameLines ?? []).slice(0, 10),
+    liveCount: myPlayerLines.length,
+    finalCount: 0,
+  };
 }
 
 function sleeperSnapshot(
@@ -85,14 +244,17 @@ function sleeperSnapshot(
       : [];
 
   const names = session.playerNames ?? {};
-  const playerLines = ids
+  const myPlayerLines = ids
     .map((id) => {
       const pts = playersPoints[id];
       const name = names[id] ?? `Player ${id}`;
       const score = pts == null ? "—" : Number(pts).toFixed(1);
-      return `${name}  ${score}  ·  LIVE`;
+      return `${name}  ${score}`;
     })
     .slice(0, 10);
+
+  const oppPlayerLines = (session.oppLivePlayerLines ?? []).slice(0, 10);
+  const nflGameLines = (session.nflGameLines ?? []).slice(0, 10);
 
   const myScore = Number(mine.points ?? 0);
   const oppScore = Number(opp?.points ?? 0);
@@ -101,8 +263,11 @@ function sleeperSnapshot(
     myScore,
     oppScore,
     opponentName: session.opponentName || (opp ? `Roster ${opp.roster_id}` : "Opponent"),
-    playerLines,
-    liveCount: playerLines.length,
+    playerLines: myPlayerLines,
+    myPlayerLines,
+    oppPlayerLines,
+    nflGameLines,
+    liveCount: myPlayerLines.length,
     finalCount: 0,
   };
 }
@@ -160,7 +325,7 @@ function mflSnapshot(
       ? [playersRaw as Record<string, unknown>]
       : [];
 
-  const playerLines = players
+  const myPlayerLines = players
     .map((p) => {
       const name = String(p.name ?? p.id ?? "Player");
       const score = Number(p.score ?? p.pts ?? 0);
@@ -182,16 +347,49 @@ function mflSnapshot(
     })
     .sort((a, b) => b.score - a.score)
     .slice(0, 10)
-    .map((p) => `${p.name}  ${p.score.toFixed(1)}  ·  LIVE`);
+    .map((p) => `${p.name}  ${p.score.toFixed(1)}`);
+
+  const oppPlayerLines = oppLivePlayerLines(opp).length
+    ? oppLivePlayerLines(opp)
+    : (session.oppLivePlayerLines ?? []).slice(0, 10);
 
   return {
     myScore: Number(mine.score ?? mine.pts ?? 0),
     oppScore: Number(opp?.score ?? opp?.pts ?? 0),
-    opponentName: String(opp?.name ?? "Opponent"),
-    playerLines,
-    liveCount: playerLines.length,
+    opponentName: String(opp?.name ?? session.opponentName ?? "Opponent"),
+    playerLines: myPlayerLines,
+    myPlayerLines,
+    oppPlayerLines,
+    nflGameLines: (session.nflGameLines ?? []).slice(0, 10),
+    liveCount: myPlayerLines.length,
     finalCount: 0,
   };
+}
+
+function oppLivePlayerLines(opp?: Record<string, unknown>): string[] {
+  if (!opp) return [];
+  const playersRaw = opp.player;
+  const players = Array.isArray(playersRaw)
+    ? (playersRaw as Array<Record<string, unknown>>)
+    : playersRaw
+      ? [playersRaw as Record<string, unknown>]
+      : [];
+  return players
+    .map((p) => {
+      const name = String(p.name ?? p.id ?? "Player");
+      const score = Number(p.score ?? p.pts ?? 0);
+      const status = String(p.status ?? "").toUpperCase().replace(/\s+/g, "");
+      return { name, score, status };
+    })
+    .filter(
+      (p) =>
+        p.status.includes("LIVE") ||
+        p.status.includes("INPLAY") ||
+        p.status.includes("IN_PROGRESS")
+    )
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10)
+    .map((p) => `${p.name}  ${p.score.toFixed(1)}`);
 }
 
 /** Matches the every-5-minutes cron schedule in wrangler.toml. */
@@ -219,7 +417,7 @@ export function toContentState(
     opponentName: scores.opponentName,
     week: session.week,
     statusLine: status,
-    playerLines: scores.playerLines,
+    playerLines: scores.myPlayerLines,
     lastUpdated: Math.floor(Date.now() / 1000),
     nextSyncAt: nextSyncAt(),
     leagueName: session.leagueName,
@@ -227,6 +425,9 @@ export function toContentState(
     providerLabel: session.providerLabel,
     leagueLinkId: session.leagueLinkId,
     leagueCount: session.leagueCount ?? 1,
+    myPlayerLines: scores.myPlayerLines,
+    oppPlayerLines: scores.oppPlayerLines,
+    nflGameLines: scores.nflGameLines,
   };
 }
 
@@ -238,6 +439,9 @@ export function contentUnchanged(a?: ContentState, b?: ContentState): boolean {
     a.opponentName === b.opponentName &&
     a.statusLine === b.statusLine &&
     a.playerLines.join("|") === b.playerLines.join("|") &&
+    (a.myPlayerLines ?? []).join("|") === (b.myPlayerLines ?? []).join("|") &&
+    (a.oppPlayerLines ?? []).join("|") === (b.oppPlayerLines ?? []).join("|") &&
+    (a.nflGameLines ?? []).join("|") === (b.nflGameLines ?? []).join("|") &&
     a.leagueName === b.leagueName &&
     a.myTeamName === b.myTeamName &&
     a.providerLabel === b.providerLabel &&

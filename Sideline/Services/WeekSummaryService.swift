@@ -397,7 +397,7 @@ enum WeekSummaryService {
     private static func playerLine(_ p: RosterPlayer) -> String {
         let pts: String
         if let d = p.displayWeekPoints {
-            pts = String(format: "%.1f %@", d.value, d.isLive ? "live" : "proj")
+            pts = String(format: "%.1f %@", d.value, d.kind.label)
         } else {
             pts = "n/a"
         }

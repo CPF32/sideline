@@ -30,7 +30,7 @@ enum AgentChatToolkit {
             "type": "function",
             "function": [
                 "name": "get_league_rules",
-                "description": "Fetch starter slot limits by position, roster size, IR/taxi slots, and salary cap when the league uses salaries.",
+                "description": "Fetch starter slot limits by position, roster size, IR/taxi slots, salary cap when used, and the league's scoring rules (point values for TDs, receptions, yards, etc.).",
                 "parameters": [
                     "type": "object",
                     "properties": [:] as [String: Any],
@@ -340,10 +340,21 @@ enum AgentChatToolkit {
 
     @MainActor
     private static func rulesText(appState: AppState) -> String {
-        guard let rules = appState.team?.leagueRules else {
+        guard let team = appState.team else {
             return "League rules not loaded. Sync the team first."
         }
-        return rules.summaryForLLM
+        var parts: [String] = []
+        if let rules = team.leagueRules {
+            parts.append("LEAGUE ROSTER RULES:\n\(rules.summaryForLLM)")
+        } else {
+            parts.append("League roster rules not loaded.")
+        }
+        if let scoring = team.scoringRules, !scoring.isEmpty {
+            parts.append(scoring.summaryForLLM)
+        } else {
+            parts.append("LEAGUE SCORING: unavailable.")
+        }
+        return parts.joined(separator: "\n\n")
     }
 
     @MainActor
@@ -422,6 +433,20 @@ enum AgentChatToolkit {
                     if let st = p.status { bits.append("status=\(st)") }
                     lines.append("- " + bits.joined(separator: " · "))
                     nameHits.append(p.fullName)
+                }
+            }
+            chunks.append(lines.joined(separator: "\n"))
+        } else if linked.isESPN {
+            var lines: [String] = ["ESPN PLAYERS:"]
+            for id in ids.prefix(12) {
+                if let hit = rosterHits.first(where: { $0.playerId == id }) {
+                    lines.append("- \(hit.name) \(hit.position) \(hit.team)")
+                    nameHits.append(hit.name)
+                } else if let link = await PlayerIDCrosswalk.shared.record(espnId: id) {
+                    lines.append("- \(link.name) \(link.position) \(link.team) (espn \(id))")
+                    nameHits.append(link.name)
+                } else {
+                    lines.append("- ESPN player \(id)")
                 }
             }
             chunks.append(lines.joined(separator: "\n"))

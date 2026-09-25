@@ -1,34 +1,88 @@
-# Sideline Live Activity backend
+# Sideline Live + Public Cache backend
 
-Polls **MFL** / **Sleeper** live scores and pushes **ActivityKit** updates to APNs so Lock Screen / Dynamic Island stay fresh while the app is backgrounded.
+Cloudflare Worker that:
 
-FantasyPros is not used here (no live scoring API).
+1. **Live Activities** — polls MFL / Sleeper live scores and pushes ActivityKit updates via APNs.
+2. **Shared public cache** — serves NFL schedule, Sleeper nflState / players / public matchups, and DynastyProcess player IDs from **CACHE KV** (hot JSON) + **R2** (large catalogs) so devices hit Sideline first instead of slamming upstream on every cold launch.
+
+FantasyPros, The Odds API, and LLMs are **not** proxied (BYOK stays on-device). Private league sync (auth’d MFL / Sleeper rosters) stays device → vendor.
 
 ## Architecture
 
 ```
-iOS app                     Cloudflare Worker                 Hosts
-────────                    ─────────────────                 ─────
+iOS app                         Cloudflare Worker                    Upstream
+────────                        ─────────────────                    ────────
+DataCache L2 ──miss──GET──────► /v1/public/* ──HIT──► CACHE KV / R2
+                              │                MISS / ?revalidate=1
+                              └──────────────────────► Sleeper / MFL public / GitHub
+                              Cron (game windows + daily catalogs)
+
+Live Activity register ──POST─► /v1/live-activity/* ──► SESSIONS KV + APNs
+```
+
+### Public endpoints (no auth)
+
+| Route | Source | Storage |
+| --- | --- | --- |
+| `GET /v1/public/nfl-schedule?season=&week=` | MFL `TYPE=nflSchedule` | CACHE KV |
+| `GET /v1/public/sleeper/nfl-state` | Sleeper `/state/nfl` | CACHE KV |
+| `GET /v1/public/sleeper/matchups?leagueId=&week=` | Sleeper matchups | CACHE KV (+ watched set for cron) |
+| `GET /v1/public/sleeper/players` | Sleeper `/players/nfl` (~15MB) | R2 `catalogs/sleeper-players-nfl.json` |
+| `GET /v1/public/mfl/player-intel?season=&ids=` | MFL `playerProfile` (bio + news articles) + `players&DETAILS` | CACHE KV per player id |
+
+Query `?revalidate=1` (or `Cache-Control: no-cache`) forces an upstream refill. Responses include `ETag`, `Cache-Control`, and `X-Sideline-Cache: HIT|MISS|REVALIDATED|HIT-WAIT`.
+
+Cold keys use a short KV lock so concurrent devices single-flight the upstream fetch.
+
+### Refresh paths
+
+| Path | Behavior |
+| --- | --- |
+| Cron (game windows) | Refreshes nflState, current week schedule, watched matchups; also runs Live Activity poll |
+| Cron `0 10 * * *` | Daily catalog refresh (players + player-ids) |
+| On-demand | First request / TTL miss fills from upstream |
+| App pull-to-refresh | iOS clears L2 and calls with `revalidate=1` |
+| Worker down | iOS falls back to vendor URLs directly |
+
+Manual: `POST /v1/public/refresh?catalogs=1` with `X-Sideline-Key` (same as Live Activity secret).
+
+## Storage
+
+| Binding | Role |
+| --- | --- |
+| `SESSIONS` | Live Activity sessions + last-pushed state (`la:*`) |
+| `CACHE` | Hot public JSON (`pub:*` schedule, state, matchups, ETag meta, locks) |
+| `PUBLIC` (R2 bucket `sideline-public`) | Large catalogs (`catalogs/sleeper-players-nfl.json`, `catalogs/db_playerids.csv`) |
+
+```toml
+[[r2_buckets]]
+binding = "PUBLIC"
+bucket_name = "sideline-public"
+preview_bucket_name = "sideline-public"
+```
+
+**Workers Paid** is assumed for KV write headroom and cron volume.
+
+## Live Activity (unchanged)
+
+```
 Start Live Activity
   pushType: .token
 Observe pushToken  ──POST──► /v1/live-activity/register
-                             add to la:sessions (KV)
+                             add to la:sessions (SESSIONS KV)
 Cron (*/5, game windows)────► group sessions by league
                              fetch each league once
-                             (MFL liveScoring / Sleeper matchups)
                   ──APNs───► push each user's matchup
 End activity      ──DELETE─► /v1/live-activity/:id
 ```
 
-Cron runs **every 5 minutes, only during NFL game windows** (Sat/Sun afternoons, and the Thu/Sun/Mon night games that run past midnight UTC — see `wrangler.toml`). Outside those windows the Worker never wakes. Foreground app polling (~20s) still fills gaps while Sideline is open.
+Cron runs every 5 minutes during NFL game windows (see `wrangler.toml`), plus the daily catalog tick.
 
-Each tick costs:
+Each Live Activity tick costs:
 
-- **KV:** 1 read with no active sessions; otherwise 2 reads and at most 1 write (only when a score changed). All sessions live in `la:sessions` (written only by register/delete) and last-pushed content in `la:state` (written only by the cron). That keeps it well under the free tier's 1,000 writes/day.
-- **Score APIs:** one fetch per active league/week, shared by every user in that league. MFL needs a login cookie, so the Worker uses any registered member's cookie for the whole league.
-- **APNs:** one push per live user every tick, even if scores are unchanged, so the Live Activity's "next sync" countdown resets. Each push carries `nextSyncAt` (the next 5-minute boundary).
-
-On the free plan a single run can make 50 outbound requests (league fetches + pushes), which limits how many users can have Live Activities running at once. Workers Paid raises that.
+- **SESSIONS KV:** 1 read with no active sessions; otherwise 2 reads and at most 1 write (only when a score changed).
+- **Score APIs:** one fetch per active league/week, shared by every user in that league.
+- **APNs:** one push per live user every tick.
 
 ## Apple setup (one-time)
 
@@ -38,42 +92,45 @@ On the free plan a single run can make 50 outbound requests (league fetches + pu
 2. **Keys** → create an **APNs Auth Key** (.p8). Note **Key ID** + **Team ID**.
 3. Download the `.p8` once; store as a Worker secret (never commit).
 
-## Deploy (exact steps)
+## Deploy
 
 ### 0. Prerequisites
 
 - Node 18+ (`node -v`)
-- A Cloudflare account
-- Apple Developer: App ID `com.cpf32.sideline` with **Push Notifications** + **Live Activities**
-- An **APNs Auth Key** (.p8) from Apple Developer → Keys — note **Key ID** and **Team ID**
+- A Cloudflare account (Workers Paid recommended)
+- Apple Developer: App ID with **Push Notifications** + **Live Activities**
+- An **APNs Auth Key** (.p8)
 
 ### 1. Install + log in
 
 ```bash
-cd /path/to/sideline_ai/backend
+cd backend
 npm install
 npx wrangler login
 ```
 
-Browser opens → approve Cloudflare.
-
-### 2. Create KV namespaces
-
-```bash
-npx wrangler kv namespace create SESSIONS
-npx wrangler kv namespace create SESSIONS --preview
-```
-
-Each command prints an `id`. Open `wrangler.toml` and replace:
+### 2. KV (already created for this project)
 
 ```toml
 [[kv_namespaces]]
 binding = "SESSIONS"
-id = "PASTE_PRODUCTION_ID_HERE"
-preview_id = "PASTE_PREVIEW_ID_HERE"
+id = "…"
+preview_id = "…"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "…"
+preview_id = "…"
 ```
 
-### 3. Fill Apple vars in `wrangler.toml`
+To recreate:
+
+```bash
+npx wrangler kv namespace create CACHE
+npx wrangler kv namespace create CACHE --preview
+```
+
+### 3. Apple vars + secrets
 
 ```toml
 [vars]
@@ -82,63 +139,50 @@ APNS_TEAM_ID = "YOUR_10_CHAR_TEAM_ID"
 APNS_KEY_ID = "YOUR_10_CHAR_KEY_ID"
 ```
 
-APNs host is automatic: the app sends `sandbox` (DEBUG) or `production` (Release), and the Worker falls back to the other host if Apple rejects the token for the wrong environment. Do not set `APNS_HOST`.
-
-### 4. Set secrets (not committed)
-
-Generate a shared register secret (save it — you’ll paste into the iOS app):
-
 ```bash
 openssl rand -hex 24
-```
-
-```bash
 npx wrangler secret put REGISTER_SECRET
-# paste the hex string, Enter
-
 npx wrangler secret put APNS_PRIVATE_KEY
-# paste the FULL contents of AuthKey_XXXX.p8 including
-# -----BEGIN PRIVATE KEY----- and -----END PRIVATE KEY-----
-# then Enter / Ctrl-D if prompted
 ```
 
-### 5. Deploy
+### 4. Deploy
 
 ```bash
 npx wrangler deploy
 ```
 
-Wrangler prints a URL like:
-
-`https://sideline-live.<your-subdomain>.workers.dev`
-
 Smoke test:
 
 ```bash
-curl https://sideline-live.<your-subdomain>.workers.dev/health
-# {"ok":true,"service":"sideline-live"}
+curl https://sideline-live.<subdomain>.workers.dev/health
+# {"ok":true,"service":"sideline-live","publicCache":true,"r2":false}
+
+curl -D - "https://sideline-live.<subdomain>.workers.dev/v1/public/sleeper/nfl-state" -o /dev/null
+# X-Sideline-Cache: MISS then HIT on second request
 ```
 
-### 6. Wire the iOS app
+### 5. Wire the iOS app
 
-Settings → **Appearance** → enable Matchup Live Activity, then:
-
-- **Live backend URL** → the `https://…workers.dev` URL (no trailing slash)
-- **Register secret** → same value as `REGISTER_SECRET`
-
-Rebuild and run on a **physical iPhone** (Live Activities + push tokens need a device).
-
-The cron schedule is already in `wrangler.toml` — after deploy, Cloudflare polls scores every 5 minutes during game windows.
+Settings → Live Activity backend URL (defaults to the deployed Worker). Public cache uses the **same base URL** via `SidelinePublicClient`.
 
 ## Privacy
 
-- **Sleeper** sessions only send public league/roster IDs.
-- **MFL** sessions send the `MFL_USER_ID` cookie for up to **8 hours** (Live Activity lifetime). It lives in Cloudflare KV, TTL’d, and is deleted when the activity ends. Prefer running the Worker on an account you control.
+- **Public cache** stores only public upstream blobs (schedule, Sleeper catalogs/state/matchups, DynastyProcess IDs). No user API keys, no MFL passwords.
+- **Sleeper** Live Activity sessions only send public league/roster IDs.
+- **MFL** Live Activity sessions send the `MFL_USER_ID` cookie for up to **8 hours** (Live Activity lifetime) in `SESSIONS` KV, TTL’d, deleted when the activity ends.
+- FantasyPros / Odds / LLM keys never leave the device.
+
+## Measuring impact
+
+Before: each cold launch / first sync could hit MFL public schedule + Sleeper `/players/nfl` (~15MB) + DynastyProcess CSV + nflState independently per device.
+
+After: those requests go to the Worker; N devices share one upstream fill. Check `X-Sideline-Cache: HIT` on repeat GETs. Device `DataCache` still short-circuits network when L2 is warm.
 
 ## Local test
 
 ```bash
 npm run dev
+curl http://127.0.0.1:8787/v1/public/sleeper/nfl-state
 curl -X POST http://127.0.0.1:8787/v1/live-activity/poll \
   -H "X-Sideline-Key: $REGISTER_SECRET"
 ```

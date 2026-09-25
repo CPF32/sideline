@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import SwiftUI
 
 @Model
 final class LinkedFranchise {
@@ -11,9 +12,9 @@ final class LinkedFranchise {
     var host: String
     var season: Int
     var updatedAt: Date
-    /// `mfl` or `sleeper` — defaults for lightweight migration of existing links.
+    /// `mfl`, `sleeper`, or `espn` — defaults for lightweight migration of existing links.
     var providerRaw: String = LeagueProvider.mfl.rawValue
-    /// Sleeper user_id when provider is sleeper (empty for MFL).
+    /// Sleeper user_id when provider is sleeper (empty for MFL / ESPN).
     var sleeperUserId: String = ""
 
     var provider: LeagueProvider {
@@ -28,7 +29,26 @@ final class LinkedFranchise {
         if host.localizedCaseInsensitiveContains("sleeper") { return true }
         return false
     }
-    var isMFL: Bool { !isSleeper }
+
+    var isESPN: Bool {
+        if provider == .espn { return true }
+        if id.hasPrefix("espn|") { return true }
+        if host.localizedCaseInsensitiveContains("espn") { return true }
+        return false
+    }
+
+    var isMFL: Bool {
+        if provider == .mfl {
+            // Don't treat mis-tagged rows as MFL when id/host clearly say otherwise.
+            if isSleeper || isESPN { return false }
+            return true
+        }
+        // Legacy rows before providerRaw existed: defaulted to mfl and used leagueId-franchiseId ids.
+        if isSleeper || isESPN { return false }
+        if id.contains("|") { return false }
+        return !host.localizedCaseInsensitiveContains("sleeper")
+            && !host.localizedCaseInsensitiveContains("espn")
+    }
 
     init(
         leagueId: String,
@@ -89,6 +109,28 @@ struct MFLLeagueSummary: Identifiable, Hashable {
     let url: String?
 }
 
+enum WeekPointsKind: Equatable {
+    case projected
+    case live
+    case final
+
+    var label: String {
+        switch self {
+        case .projected: return "proj"
+        case .live: return "live"
+        case .final: return "final"
+        }
+    }
+
+    var dotColor: Color {
+        switch self {
+        case .projected: return BrandTheme.muted.opacity(0.55)
+        case .live: return BrandTheme.accent
+        case .final: return BrandTheme.finalPoints
+        }
+    }
+}
+
 struct RosterPlayer: Identifiable, Hashable, Codable {
     var id: String { playerId }
     let playerId: String
@@ -114,19 +156,19 @@ struct RosterPlayer: Identifiable, Hashable, Codable {
 
     /// Prefer live/final points once the NFL game has started; otherwise projection.
     /// Never show matchup zeros / stale actuals as "live" for upcoming / unknown / bye.
-    var displayWeekPoints: (value: Double, isLive: Bool)? {
+    var displayWeekPoints: (value: Double, kind: WeekPointsKind)? {
         let lock = gameLockState ?? "upcoming"
         switch lock {
         case "started":
-            if let actual = actualPoints { return (actual, true) }
-            if let proj = projectedPoints { return (proj, false) }
+            if let actual = actualPoints { return (actual, .live) }
+            if let proj = projectedPoints { return (proj, .projected) }
             return nil
         case "final":
-            if let actual = actualPoints { return (actual, false) }
+            if let actual = actualPoints { return (actual, .final) }
             return nil
         default:
             // upcoming | bye | unknown — projection only; omit if unavailable
-            if let proj = projectedPoints { return (proj, false) }
+            if let proj = projectedPoints { return (proj, .projected) }
             return nil
         }
     }
@@ -221,6 +263,8 @@ struct MatchupSnapshot: Hashable, Codable {
     var oppScore: Double?
     var opponentName: String?
     var lineupDeadline: Date?
+    /// Opponent starters in active NFL games — `Name  12.3` for Live Activity cycling.
+    var oppLivePlayerLines: [String] = []
 }
 
 /// Franchise opponent for a future (or past) week, used on the Team tab schedule strip.
@@ -245,6 +289,8 @@ struct TeamSnapshot: Hashable, Codable {
     var taxi: [RosterPlayer]
     var matchup: MatchupSnapshot?
     var leagueRules: LeagueRules?
+    /// Point values from the host (MFL rules / Sleeper scoring_settings / ESPN scoringItems).
+    var scoringRules: ScoringRules? = nil
     /// Sum of rostered player salaries (when the league uses salaries).
     var totalSalary: Double? = nil
     var syncedAt: Date

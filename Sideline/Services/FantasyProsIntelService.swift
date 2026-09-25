@@ -51,6 +51,7 @@ actor FantasyProsIntelService {
     private var news: [FantasyProsNewsItem] = []
     private var byMFLId: [String: FantasyProsProjection] = [:]
     private var bySleeperId: [String: FantasyProsProjection] = [:]
+    private var byEspnId: [String: FantasyProsProjection] = [:]
     private var bySearchKey: [String: FantasyProsProjection] = [:]
     private var byLastNamePos: [String: FantasyProsProjection] = [:]
     private var rankBySearchKey: [String: FantasyProsRanking] = [:]
@@ -215,6 +216,7 @@ actor FantasyProsIntelService {
 
         var byMFL: [String: FantasyProsProjection] = [:]
         var bySleeper: [String: FantasyProsProjection] = [:]
+        var byEspn: [String: FantasyProsProjection] = [:]
         var byKey: [String: FantasyProsProjection] = [:]
         var byLast: [String: FantasyProsProjection] = [:]
 
@@ -228,9 +230,10 @@ actor FantasyProsIntelService {
             if let sid = p.sleeperId, !sid.isEmpty {
                 bySleeper[sid] = p
             }
-            // DynastyProcess: FantasyPros id → Sleeper / MFL ids
+            // DynastyProcess: FantasyPros id → Sleeper / MFL / ESPN ids
             if !p.fpId.isEmpty, let link = await PlayerIDCrosswalk.shared.record(fantasyProsId: p.fpId) {
                 if let sid = link.sleeperId { bySleeper[sid] = p }
+                if let espn = link.espnId { byEspn[espn] = p }
                 if let mfl = link.mflId {
                     byMFL[mfl] = p
                     byMFL[MFLNameResolver.normalizePlayerId(mfl)] = p
@@ -253,6 +256,7 @@ actor FantasyProsIntelService {
         }
         self.byMFLId = byMFL
         self.bySleeperId = bySleeper
+        self.byEspnId = byEspn
         self.bySearchKey = byKey
         self.byLastNamePos = byLast
 
@@ -292,7 +296,7 @@ actor FantasyProsIntelService {
         self.loadedWeek = week
         self.loadedSeason = usedSeason
         self.loadedAt = .now
-        lastStatus = "Loaded \(bestProj.count) proj · \(bestWeekly.count) weekly · \(bestRos.count) ROS · \(bySleeper.count) Sleeper links (season \(usedSeason)) · \(crossStatus)"
+        lastStatus = "Loaded \(bestProj.count) proj · \(bestWeekly.count) weekly · \(bestRos.count) ROS · \(bySleeper.count) Sleeper / \(byEspn.count) ESPN links (season \(usedSeason)) · \(crossStatus)"
         if hitQuota {
             lastStatus = (lastStatus ?? "") + " · partial (hit rate limit mid-load)"
             lastWasQuotaError = true
@@ -307,6 +311,7 @@ actor FantasyProsIntelService {
         news = []
         byMFLId = [:]
         bySleeperId = [:]
+        byEspnId = [:]
         bySearchKey = [:]
         byLastNamePos = [:]
         rankBySearchKey = [:]
@@ -327,6 +332,11 @@ actor FantasyProsIntelService {
 
     func weeklyRank(for player: RosterPlayer) async -> FantasyProsRanking? {
         if let hit = rankBySleeperId[player.playerId] { return hit }
+        if let link = await PlayerIDCrosswalk.shared.record(espnId: player.playerId),
+           let sid = link.sleeperId,
+           let hit = rankBySleeperId[sid] {
+            return hit
+        }
         let key = searchKey(name: player.name, team: player.team, position: player.position)
         if let hit = rankBySearchKey[key] { return hit }
         return matchRanking(weeklyRankings, name: player.name, team: player.team, position: player.position)
@@ -334,6 +344,11 @@ actor FantasyProsIntelService {
 
     func rosRank(for player: RosterPlayer) async -> FantasyProsRanking? {
         if let hit = rosBySleeperId[player.playerId] { return hit }
+        if let link = await PlayerIDCrosswalk.shared.record(espnId: player.playerId),
+           let sid = link.sleeperId,
+           let hit = rosBySleeperId[sid] {
+            return hit
+        }
         let key = searchKey(name: player.name, team: player.team, position: player.position)
         if let hit = rosBySearchKey[key] { return hit }
         return matchRanking(rosRankings, name: player.name, team: player.team, position: player.position)
@@ -406,6 +421,9 @@ actor FantasyProsIntelService {
         }
         // Prefer DynastyProcess Sleeper → FP map (most reliable for Sleeper leagues).
         if let link = await PlayerIDCrosswalk.shared.record(sleeperId: player.playerId) {
+            add(link.fantasyProsId)
+        }
+        if let link = await PlayerIDCrosswalk.shared.record(espnId: player.playerId) {
             add(link.fantasyProsId)
         }
         if let link = await PlayerIDCrosswalk.shared.resolve(playerId: player.playerId) {
@@ -720,6 +738,9 @@ actor FantasyProsIntelService {
         // Sleeper leagues use Sleeper ids — never treat them as MFL ids (collision risk).
         if let sleeperHit = bySleeperId[player.playerId] {
             return sleeperHit
+        }
+        if let espnHit = byEspnId[player.playerId] {
+            return espnHit
         }
         // Exact MFL id only (no zero-pad normalize on the query id — that maps Sleeper "86" → MFL "0086").
         if let mflHit = byMFLId[player.playerId] {

@@ -8,6 +8,7 @@ struct ConnectLeagueHubView: View {
     private enum Destination: String, Identifiable {
         case mfl
         case sleeper
+        case espn
         var id: String { rawValue }
     }
 
@@ -23,7 +24,7 @@ struct ConnectLeagueHubView: View {
                             Text("League hub")
                                 .font(BrandTheme.display(26, weight: .bold))
                                 .foregroundStyle(BrandTheme.ink)
-                            Text("Connect MFL and Sleeper leagues, then switch between them from Team or Settings. Sideline keeps each league’s roster and intel in one place.")
+                            Text("Connect MFL, Sleeper, and ESPN leagues, then switch between them from Team or Settings. Sideline keeps each league’s roster and intel in one place.")
                                 .font(BrandTheme.body(14))
                                 .foregroundStyle(BrandTheme.muted)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -61,6 +62,16 @@ struct ConnectLeagueHubView: View {
                                 )
                             }
                             .buttonStyle(.plain)
+
+                            Button {
+                                destination = .espn
+                            } label: {
+                                providerCard(
+                                    title: "ESPN",
+                                    subtitle: "League ID · cookies for private leagues · read-only"
+                                )
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, BrandTheme.pageGutter)
@@ -86,6 +97,8 @@ struct ConnectLeagueHubView: View {
                     ConnectMFLView(embedded: true)
                 case .sleeper:
                     ConnectSleeperView()
+                case .espn:
+                    ConnectESPNView()
                 }
             }
         }

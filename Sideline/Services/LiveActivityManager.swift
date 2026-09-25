@@ -210,13 +210,15 @@ enum LiveActivityManager {
         let payload = LiveActivityPushClient.RegisterPayload(
             activityId: activityId,
             pushToken: tokenHex,
-            provider: linked.isSleeper ? "sleeper" : "mfl",
+            provider: linked.isSleeper ? "sleeper" : (linked.isESPN ? "espn" : "mfl"),
             leagueId: linked.leagueId,
             franchiseId: linked.franchiseId,
             week: snapshot.week,
             season: linked.season,
             host: linked.isMFL ? linked.host : nil,
             mflCookie: linked.isMFL ? KeychainStore.get(.mflUserCookie) : nil,
+            espnS2: linked.isESPN ? KeychainStore.get(.espnS2) : nil,
+            espnSwid: linked.isESPN ? KeychainStore.get(.espnSWID) : nil,
             leagueName: linked.leagueName,
             myTeamName: snapshot.franchiseName.isEmpty ? linked.franchiseName : snapshot.franchiseName,
             providerLabel: linked.provider.shortName,
@@ -224,6 +226,8 @@ enum LiveActivityManager {
             playerNames: names,
             starterIds: starters.map(\.playerId),
             liveStarterIds: liveStarters.map(\.playerId),
+            oppLivePlayerLines: snapshot.matchup?.oppLivePlayerLines,
+            nflGameLines: Self.nflGameLines(from: liveStarters),
             leagueLinkId: linked.id,
             leagueCount: leagueCount,
             apnsEnvironment: LiveActivityPushClient.apnsEnvironment
@@ -251,22 +255,10 @@ enum LiveActivityManager {
         let opp = snapshot.matchup?.oppScore ?? 0
         let oppName = snapshot.matchup?.opponentName ?? "Opponent"
         let now = Date()
-
-        // Only currently-playing starters — never upcoming / final with leftover points.
-        let lines: [String] = liveStarters
-            .filter { $0.gameLockState == "started" }
-            .sorted { ($0.actualPoints ?? 0) > ($1.actualPoints ?? 0) }
-            .prefix(10)
-            .map { player in
-                let pts = player.actualPoints.map { String(format: "%.1f", $0) } ?? "—"
-                let clock: String = {
-                    if let secs = player.gameSecondsRemaining, secs > 0 {
-                        return String(format: "%d:%02d", secs / 60, secs % 60)
-                    }
-                    return "LIVE"
-                }()
-                return "\(player.name)  \(pts)  ·  \(clock)"
-            }
+        let live = liveStarters.filter { $0.gameLockState == "started" }
+        let myLines = Self.fantasyLines(from: live)
+        let oppLines = Array((snapshot.matchup?.oppLivePlayerLines ?? []).prefix(10))
+        let nflLines = Self.nflGameLines(from: live)
 
         let liveCount = snapshot.starters.filter { $0.gameLockState == "started" }.count
         let finalCount = snapshot.starters.filter { $0.gameLockState == "final" }.count
@@ -287,15 +279,48 @@ enum LiveActivityManager {
             opponentName: oppName,
             week: snapshot.week,
             statusLine: status,
-            playerLines: lines,
+            playerLines: myLines,
             lastUpdated: now.timeIntervalSince1970,
             nextSyncAt: MatchupLiveSyncSchedule.nextSyncAt(after: now),
             leagueName: linked.leagueName,
             myTeamName: teamName,
             providerLabel: linked.provider.shortName,
             leagueLinkId: linked.id,
-            leagueCount: leagueCount
+            leagueCount: leagueCount,
+            myPlayerLines: myLines,
+            oppPlayerLines: oppLines,
+            nflGameLines: nflLines
         )
+    }
+
+    private static func fantasyLines(from players: [RosterPlayer]) -> [String] {
+        players
+            .sorted { ($0.actualPoints ?? 0) > ($1.actualPoints ?? 0) }
+            .prefix(10)
+            .map { player in
+                let pts = player.actualPoints.map { String(format: "%.1f", $0) } ?? "—"
+                return "\(player.name)  \(pts)"
+            }
+    }
+
+    /// Unique in-progress NFL games from live starters (`KC @ LAC  12:34`).
+    private static func nflGameLines(from players: [RosterPlayer]) -> [String] {
+        var seen = Set<String>()
+        var lines: [String] = []
+        for player in players where player.gameLockState == "started" {
+            let team = player.team.uppercased()
+            guard !team.isEmpty, seen.insert(team).inserted else { continue }
+            let matchup = player.opponent?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let label = matchup.isEmpty ? team : "\(team) \(matchup)"
+            let clock: String = {
+                if let secs = player.gameSecondsRemaining, secs > 0 {
+                    return String(format: "%d:%02d", secs / 60, secs % 60)
+                }
+                return "LIVE"
+            }()
+            lines.append("\(label)  \(clock)")
+        }
+        return Array(lines.prefix(10))
     }
 
     private static func hex(_ data: Data) -> String {
