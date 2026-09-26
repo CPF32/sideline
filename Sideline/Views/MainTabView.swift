@@ -10,14 +10,18 @@ enum MainTab: Hashable {
 struct MainTabView: View {
     @EnvironmentObject private var appState: AppState
 
+    private var teamTabTitle: String {
+        switch appState.teamRosterPane {
+        case .matchup: return "Match"
+        case .mine: return "Team"
+        }
+    }
+
     var body: some View {
         TabView(selection: $appState.selectedTab) {
             TeamCockpitView()
                 .tabItem {
-                    Label(
-                        appState.teamRosterPane == .matchup ? "Matchup" : "Lineup",
-                        systemImage: "list.bullet.rectangle"
-                    )
+                    Label(teamTabTitle, systemImage: "list.bullet.rectangle")
                 }
                 .tag(MainTab.team)
 
@@ -45,7 +49,9 @@ struct MainTabView: View {
         .sheet(isPresented: $appState.showApprovals) {
             ApprovalsSheet()
                 .environmentObject(appState)
-                .presentationDetents([.medium, .large])
+                // Prefer large so the Team page TabView isn't compressed mid-detent
+                // (that left Matchup blank with the snackbar floating mid-screen).
+                .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
         .alert("Error", isPresented: Binding(

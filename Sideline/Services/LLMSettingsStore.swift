@@ -75,32 +75,35 @@ enum LLMProvider: String, CaseIterable, Identifiable, Codable {
     var setupHint: String {
         switch self {
         case .openAI:
-            return "Live models load with your OpenAI key. Defaults to the cheapest listed option."
+            return "Live models load with your OpenAI key. Selection is saved in the on-device database."
         case .anthropic:
-            return "Live models load with your Anthropic key. Defaults to the cheapest listed option."
+            return "Live models load with your Anthropic key. Selection is saved in the on-device database."
         case .google:
-            return "Live models load with your Google key. Defaults to the cheapest listed option."
+            return "Live models load with your Google key. Selection is saved in the on-device database."
         case .openRouter:
-            return "Live OpenRouter catalog sorted by price. Defaults to the cheapest JSON-capable model."
+            return "Live OpenRouter catalog sorted by price. Selection is saved in the on-device database."
         }
-    }
-
-    func resolvedModel(stored: String?, from models: [LLMModelOption]) -> String {
-        let list = models.isEmpty ? fallbackModels : models
-        guard let stored, !stored.isEmpty else { return list.first?.id ?? defaultModel }
-        if list.contains(where: { $0.id == stored }) { return stored }
-        return list.first?.id ?? defaultModel
     }
 }
 
 @MainActor
 final class LLMSettingsStore: ObservableObject {
     @Published var provider: LLMProvider {
-        didSet { UserDefaults.standard.set(provider.rawValue, forKey: "sideline.llm.provider") }
+        didSet {
+            guard !isHydrating, provider != oldValue else { return }
+            applyModel(modelsByProvider[provider.rawValue] ?? provider.defaultModel, persist: true)
+            reloadKeyDraft()
+        }
     }
+
     @Published var model: String {
-        didSet { UserDefaults.standard.set(model, forKey: "sideline.llm.model") }
+        didSet {
+            guard !isHydrating, model != oldValue else { return }
+            modelsByProvider[provider.rawValue] = model
+            persistHandler?()
+        }
     }
+
     @Published var apiKeyDraft: String = ""
     @Published private(set) var keySaveMessage: String?
     @Published private(set) var keyIsSaved: Bool = false
@@ -109,29 +112,50 @@ final class LLMSettingsStore: ObservableObject {
     @Published private(set) var modelsSourceLabel = "Using offline list"
     @Published private(set) var modelsError: String?
 
+    /// Per-provider last model id (persisted via SwiftData through `persistHandler`).
+    private(set) var modelsByProvider: [String: String] = [:]
+
     private var fetchTask: Task<Void, Never>?
+    private var isHydrating = true
+    private var persistHandler: (() -> Void)?
 
     init() {
-        if UserDefaults.standard.string(forKey: "sideline.llm.provider") == "typesafe" {
-            UserDefaults.standard.set(LLMProvider.openAI.rawValue, forKey: "sideline.llm.provider")
-            UserDefaults.standard.set(LLMProvider.openAI.defaultModel, forKey: "sideline.llm.model")
-        }
         KeychainStore.set(nil, for: .llmTypeSafe)
-
-        let raw = UserDefaults.standard.string(forKey: "sideline.llm.provider") ?? LLMProvider.openAI.rawValue
-        let resolved = LLMProvider(rawValue: raw) ?? .openAI
-        let fallback = resolved.fallbackModels
-        provider = resolved
-        liveModels = fallback
-        model = resolved.resolvedModel(
-            stored: UserDefaults.standard.string(forKey: "sideline.llm.model"),
-            from: fallback
-        )
-        apiKeyDraft = KeychainStore.get(resolved.keychainKey) ?? ""
-        keyIsSaved = !(KeychainStore.get(resolved.keychainKey) ?? "").isEmpty
+        provider = .openAI
+        liveModels = LLMProvider.openAI.fallbackModels
+        model = LLMProvider.openAI.defaultModel
+        modelsByProvider = [LLMProvider.openAI.rawValue: LLMProvider.openAI.defaultModel]
+        apiKeyDraft = ""
+        keyIsSaved = false
         isLoadingModels = false
         modelsSourceLabel = "Using offline list"
         modelsError = nil
+        isHydrating = false
+    }
+
+    /// Called from AppState after SwiftData preferences are loaded.
+    func hydrate(providerRaw: String, model: String, modelsByProvider: [String: String]) {
+        isHydrating = true
+        var map = modelsByProvider
+        let resolvedProvider = LLMProvider(rawValue: providerRaw == "typesafe" ? "openai" : providerRaw) ?? .openAI
+        let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedModel = trimmed.isEmpty
+            ? (map[resolvedProvider.rawValue] ?? resolvedProvider.defaultModel)
+            : trimmed
+        if map[resolvedProvider.rawValue] == nil {
+            map[resolvedProvider.rawValue] = resolvedModel
+        }
+        self.modelsByProvider = map
+        provider = resolvedProvider
+        liveModels = resolvedProvider.fallbackModels
+        self.model = resolvedModel
+        apiKeyDraft = KeychainStore.get(resolvedProvider.keychainKey) ?? ""
+        keyIsSaved = !(KeychainStore.get(resolvedProvider.keychainKey) ?? "").isEmpty
+        isHydrating = false
+    }
+
+    func bindPersistHandler(_ handler: @escaping () -> Void) {
+        persistHandler = handler
     }
 
     var hasAPIKey: Bool {
@@ -159,7 +183,6 @@ final class LLMSettingsStore: ObservableObject {
     private func friendlyModelTitle(_ id: String) -> String {
         let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "Unknown model" }
-        // openrouter-style "google/gemini-2.5-flash" → "gemini-2.5-flash"
         if let slash = trimmed.lastIndex(of: "/") {
             return String(trimmed[trimmed.index(after: slash)...])
         }
@@ -179,11 +202,12 @@ final class LLMSettingsStore: ObservableObject {
         KeychainStore.delete(.llmGoogle)
         KeychainStore.delete(.llmOpenRouter)
         KeychainStore.delete(.llmTypeSafe)
-        UserDefaults.standard.removeObject(forKey: "sideline.llm.provider")
-        UserDefaults.standard.removeObject(forKey: "sideline.llm.model")
+        isHydrating = true
         provider = .openAI
         liveModels = LLMProvider.openAI.fallbackModels
         model = LLMProvider.openAI.defaultModel
+        modelsByProvider = [LLMProvider.openAI.rawValue: LLMProvider.openAI.defaultModel]
+        isHydrating = false
         apiKeyDraft = ""
         keyIsSaved = false
         keySaveMessage = nil
@@ -192,14 +216,31 @@ final class LLMSettingsStore: ObservableObject {
         modelsError = nil
     }
 
+    /// Switch provider and restore that provider's last saved model (or its default).
+    func selectProvider(_ newProvider: LLMProvider) {
+        guard newProvider != provider else { return }
+        provider = newProvider
+        refreshModels(preferCheapestIfInvalid: false)
+    }
+
+    func selectModel(_ id: String) {
+        let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        applyModel(trimmed, persist: true)
+    }
+
+    /// Explicit flush used when the app backgrounds.
+    func persistCurrentSelection() {
+        modelsByProvider[provider.rawValue] = model
+        persistHandler?()
+    }
+
     func reloadKeyDraft() {
         apiKeyDraft = KeychainStore.get(provider.keychainKey) ?? ""
         keyIsSaved = hasAPIKey
         keySaveMessage = nil
-        // Only remapping when the current model clearly doesn't belong to this provider.
-        if !pickerModels.contains(where: { $0.id == model }),
-           fuzzyMatch(model, in: pickerModels) == nil {
-            model = provider.defaultModel
+        if !looksCompatible(model, with: provider) {
+            applyModel(modelsByProvider[provider.rawValue] ?? provider.defaultModel, persist: true)
         }
     }
 
@@ -215,7 +256,7 @@ final class LLMSettingsStore: ObservableObject {
         } else {
             keySaveMessage = ok ? "API key saved to Keychain." : "Save failed — Keychain write didn’t stick."
         }
-        refreshModels()
+        refreshModels(preferCheapestIfInvalid: false)
         return ok
     }
 
@@ -225,9 +266,9 @@ final class LLMSettingsStore: ObservableObject {
         return key
     }
 
-    /// Pull live model list for the current provider. Never clobber a model the user just picked
-    /// with the "cheapest" default (that was incorrectly showing Gemini Flash for many runs).
-    func refreshModels(preferCheapestIfInvalid: Bool = true) {
+    /// Pull live model list for the current provider. Never clobber a saved selection
+    /// with the cheapest catalog entry.
+    func refreshModels(preferCheapestIfInvalid: Bool = false) {
         fetchTask?.cancel()
         let currentProvider = provider
         let key = resolvedAPIKey()
@@ -236,7 +277,6 @@ final class LLMSettingsStore: ObservableObject {
         fetchTask = Task { @MainActor in
             let fetched = await LLMModelCatalog.fetch(provider: currentProvider, apiKey: key)
             guard !Task.isCancelled else { return }
-            // Provider may have changed while the request was in flight.
             guard self.provider == currentProvider else {
                 isLoadingModels = false
                 return
@@ -245,20 +285,17 @@ final class LLMSettingsStore: ObservableObject {
                 || currentProvider == .openRouter
             liveModels = fetched.isEmpty ? currentProvider.fallbackModels : fetched
 
-            let wanted = self.model
-            if liveModels.contains(where: { $0.id == wanted }) {
-                // Keep exact selection.
+            let wanted = self.model.trimmingCharacters(in: .whitespacesAndNewlines)
+            if wanted.isEmpty {
+                applyModel(liveModels.first?.id ?? currentProvider.defaultModel, persist: true)
+            } else if liveModels.contains(where: { $0.id == wanted }) {
+                modelsByProvider[currentProvider.rawValue] = wanted
+                persistHandler?()
             } else if let fuzzy = fuzzyMatch(wanted, in: liveModels) {
-                model = fuzzy
-            } else if preferCheapestIfInvalid, wanted.isEmpty {
-                model = liveModels.first?.id ?? currentProvider.defaultModel
-            } else if preferCheapestIfInvalid,
-                      !wanted.isEmpty,
-                      !looksCompatible(wanted, with: currentProvider) {
-                // Switching providers with an incompatible id — pick default for this provider.
-                model = liveModels.first?.id ?? currentProvider.defaultModel
+                applyModel(fuzzy, persist: true)
+            } else if preferCheapestIfInvalid, !looksCompatible(wanted, with: currentProvider) {
+                applyModel(liveModels.first?.id ?? currentProvider.defaultModel, persist: true)
             }
-            // else: keep `wanted` even if not in the catalog list (OpenRouter accepts many ids).
 
             isLoadingModels = false
             if usedLive && !fetched.isEmpty {
@@ -275,18 +312,27 @@ final class LLMSettingsStore: ObservableObject {
         }
     }
 
+    private func applyModel(_ id: String, persist: Bool) {
+        let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        modelsByProvider[provider.rawValue] = trimmed
+        if model != trimmed {
+            model = trimmed
+        } else if persist {
+            persistHandler?()
+        }
+    }
+
     private func fuzzyMatch(_ wanted: String, in models: [LLMModelOption]) -> String? {
         let w = wanted.lowercased()
         guard !w.isEmpty else { return nil }
         if let exact = models.first(where: { $0.id.lowercased() == w })?.id { return exact }
-        // "gpt-4o-mini" ↔ "openai/gpt-4o-mini"
         if let hit = models.first(where: {
             let id = $0.id.lowercased()
-            return id.hasSuffix("/\(w)") || id.hasSuffix(w) || w.hasSuffix(id)
+            return id.hasSuffix("/\(w)") || w.hasSuffix("/\(id)")
         })?.id {
             return hit
         }
-        // title match
         if let hit = models.first(where: { $0.title.lowercased() == w })?.id {
             return hit
         }
@@ -304,8 +350,7 @@ final class LLMSettingsStore: ObservableObject {
         case .google:
             return id.contains("gemini")
         case .openRouter:
-            // OpenRouter ids are usually vendor/model; accept anything non-empty.
-            return id.contains("/") || !id.isEmpty
+            return !id.isEmpty
         }
     }
 }

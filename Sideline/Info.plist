@@ -21,7 +21,7 @@
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Sideline uses the camera to scan an API key from a QR code or on-screen text.</string>
+	<string>Sideline uses the camera to scan API keys and ESPN cookies from a QR code or on-screen text.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

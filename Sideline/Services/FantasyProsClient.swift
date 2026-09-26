@@ -115,8 +115,9 @@ actor FantasyProsClient {
         position: String = "ALL",
         type: String? = nil,
         week: Int? = nil,
-        scoring: FantasyProsScoring = FantasyProsClient.scoring
+        scoring: FantasyProsScoring? = nil
     ) async throws -> Data {
+        let scoring = scoring ?? Self.scoring
         var query: [String: String] = [
             "position": position,
             "scoring": scoring.rawValue
@@ -135,8 +136,9 @@ actor FantasyProsClient {
         week: Int,
         position: String? = nil,
         positions: String? = nil,
-        scoring: FantasyProsScoring = FantasyProsClient.scoring
+        scoring: FantasyProsScoring? = nil
     ) async throws -> Data {
+        let scoring = scoring ?? Self.scoring
         // Docs: single `position` (default RB). `ALL` is invalid — fetch per-pos or use `positions`.
         var query: [String: String] = [
             "week": String(week),

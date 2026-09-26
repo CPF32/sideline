@@ -56,7 +56,10 @@ enum ESPNTeamSyncService {
             }
             return rosterRoot
         }()
-        let rules = parseLeagueRules(from: settingsRoot, endWeekFallback: probe.finalScoringPeriod)
+        let rules = LeagueRulesStore.resolve(
+            linked: linked,
+            fresh: parseLeagueRules(from: settingsRoot, endWeekFallback: probe.finalScoringPeriod)
+        )
         let scoringRules = ScoringRules.parseESPN(from: settingsRoot)
 
         let entries = rosterEntries(from: myTeam)
@@ -77,6 +80,7 @@ enum ESPNTeamSyncService {
 
         for entry in entries {
             let status = ESPNClient.rosterStatus(lineupSlotId: entry.lineupSlotId)
+            let slotName = ESPNClient.slotName(lineupSlotId: entry.lineupSlotId)
             let player = RosterPlayer(
                 playerId: entry.playerId,
                 name: entry.name,
@@ -89,7 +93,8 @@ enum ESPNTeamSyncService {
                 lastWeekPoints: nil,
                 opponent: nil,
                 injuryStatus: entry.injuryStatus,
-                gameLockState: nil
+                gameLockState: nil,
+                lineupSlot: status == "starter" ? slotName : nil
             )
             switch status {
             case "starter": starters.append(player)
@@ -151,7 +156,7 @@ enum ESPNTeamSyncService {
             leagueRules: rules,
             scoringRules: scoringRules,
             syncedAt: .now
-        )
+        ).applyingScoredSoFarToMatchup()
     }
 
     static func upcomingMatchups(
@@ -159,12 +164,17 @@ enum ESPNTeamSyncService {
         afterWeek: Int,
         throughWeek: Int
     ) async throws -> [UpcomingMatchupPreview] {
+        if let cached = LeagueScheduleStore.loadFranchiseSchedule(linked: linked), !cached.isEmpty {
+            return cached.filter { $0.week > afterWeek && $0.week <= throughWeek }
+        }
+
         let cookies = ESPNCookies.fromKeychain()
         let data = try await ESPNClient.shared.bootstrap(
             leagueId: linked.leagueId,
             season: linked.season,
             cookies: cookies
         )
+        LeagueScheduleStore.saveLeagueScheduleData(linked: linked, data: data)
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return []
         }
@@ -177,9 +187,9 @@ enum ESPNTeamSyncService {
         )
         let teamId = Int(linked.franchiseId) ?? 0
         let schedule = root["schedule"] as? [[String: Any]] ?? []
-        let end = min(throughWeek, afterWeek + 4)
-        var out: [UpcomingMatchupPreview] = []
-        for week in (afterWeek + 1)...max(afterWeek + 1, end) {
+        var all: [UpcomingMatchupPreview] = []
+        let end = max(throughWeek, 18)
+        for week in 1...end {
             guard let row = schedule.first(where: {
                 ESPNClient.intValue($0["matchupPeriodId"]) == week
                     && sideContains(teamId: teamId, matchup: $0)
@@ -188,7 +198,7 @@ enum ESPNTeamSyncService {
             let awayId = sideTeamId(row["away"])
             let oppId = homeId == teamId ? awayId : homeId
             let oppName = oppId.flatMap { teamNames[$0] } ?? "Opponent"
-            out.append(
+            all.append(
                 UpcomingMatchupPreview(
                     week: week,
                     opponentName: oppName,
@@ -196,7 +206,8 @@ enum ESPNTeamSyncService {
                 )
             )
         }
-        return out
+        LeagueScheduleStore.saveFranchiseSchedule(linked: linked, rows: all)
+        return all.filter { $0.week > afterWeek && $0.week <= throughWeek }
     }
 
     static func loadLeagueReview(linked: LinkedFranchise, week: Int) async throws -> LeagueReviewSnapshot {
@@ -412,7 +423,7 @@ enum ESPNTeamSyncService {
         let settings = root["settings"] as? [String: Any]
         let rosterSettings = settings?["rosterSettings"] as? [String: Any]
         let counts = rosterSettings?["lineupSlotCounts"] as? [String: Any] ?? [:]
-        var slots: [LeagueRules.StarterSlot] = []
+        var slots: [(id: Int, slot: LeagueRules.StarterSlot)] = []
         var totalStarters = 0
         var irSlots: Int?
         for (key, value) in counts {
@@ -423,10 +434,11 @@ enum ESPNTeamSyncService {
                 continue
             }
             let name = ESPNClient.slotName(lineupSlotId: slotId)
-            slots.append(.init(name: name, min: count, max: count))
+            slots.append((slotId, .init(name: name, min: count, max: count)))
             totalStarters += count
         }
-        slots.sort { $0.name < $1.name }
+        // ESPN slot IDs follow canonical lineup order (QB → RB → WR → TE → FLEX → …).
+        slots.sort { $0.id < $1.id }
         let status = root["status"] as? [String: Any]
         let endWeek = ESPNClient.intValue(status?["finalScoringPeriod"]) ?? endWeekFallback
         let startWeek = ESPNClient.intValue(status?["firstScoringPeriod"])
@@ -435,7 +447,7 @@ enum ESPNTeamSyncService {
             injuredReserveSlots: irSlots,
             taxiSquadSlots: nil,
             totalStarters: totalStarters > 0 ? totalStarters : nil,
-            starterSlots: slots,
+            starterSlots: slots.map(\.slot),
             usesSalaries: false,
             salaryCapAmount: nil,
             startWeek: startWeek,
@@ -451,12 +463,13 @@ enum ESPNTeamSyncService {
 
     private static func sideScore(_ any: Any?) -> Double? {
         guard let side = any as? [String: Any] else { return nil }
+        // Prefer live actuals. Avoid projected-style aggregates during an in-progress slate.
         if let live = ESPNClient.doubleValue(side["totalPointsLive"]) { return live }
-        if let total = ESPNClient.doubleValue(side["totalPoints"]) { return total }
         if let roster = side["rosterForCurrentScoringPeriod"] as? [String: Any],
            let applied = ESPNClient.doubleValue(roster["appliedStatTotal"]) {
             return applied
         }
+        if let total = ESPNClient.doubleValue(side["totalPoints"]) { return total }
         return nil
     }
 
@@ -631,7 +644,8 @@ enum ESPNTeamSyncService {
                 lastWeekPoints: nil,
                 opponent: nil,
                 injuryStatus: injury,
-                gameLockState: nil
+                gameLockState: nil,
+                lineupSlot: status == "starter" ? ESPNClient.slotName(lineupSlotId: slot) : nil
             )
             if status == "starter" {
                 starterOrder.append((slot, row))

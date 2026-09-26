@@ -19,8 +19,8 @@ final class AppState: ObservableObject {
     @Published var statusMessage: String?
     @Published var errorMessage: String?
     @Published var pendingCount: Int = 0
-    @Published var guardrails: GuardrailSettings = GuardrailEngine.load()
-    @Published var agentCriteria: AgentCriteriaBundle = AgentCriteriaStore.load()
+    @Published var guardrails: GuardrailSettings = GuardrailSettings()
+    @Published var agentCriteria: AgentCriteriaBundle = AgentCriteriaBundle()
     @Published var showApprovals = false
     @Published var showSettings = false
     @Published var showConnect = false
@@ -28,7 +28,7 @@ final class AppState: ObservableObject {
     /// Player IDs on the current roster that have Odds API props (for discrete $ marks).
     @Published var playerIdsWithProps: Set<String> = []
     @Published var selectedTab: MainTab = .team
-    /// Lineup / Matchup swipe pane — drives the tab bar label.
+    /// Team / Match swipe pane on the Team tab.
     @Published var teamRosterPane: MatchupRosterPane = .mine
     /// Deep-link into Settings (e.g. empty Odds state → Odds API).
     @Published var settingsPath: [SettingsDestination] = []
@@ -43,6 +43,20 @@ final class AppState: ObservableObject {
     @Published var isLoadingLeague = false
     /// Props tab Odds API refresh (drives SIDELINE title loading motion).
     @Published var isLoadingProps = false
+    /// Appearance — persisted in SwiftData `UserPreferences`.
+    @Published var isDarkMode = false
+    /// Nested props loads (team $ marks + Props tab) share one flag via begin/end.
+    private var propsLoadDepth = 0
+
+    func beginPropsLoad() {
+        propsLoadDepth += 1
+        isLoadingProps = true
+    }
+
+    func endPropsLoad() {
+        propsLoadDepth = max(0, propsLoadDepth - 1)
+        isLoadingProps = propsLoadDepth > 0
+    }
     @Published var followUpProposal: ActionProposal?
     @Published var teamWeekSummary: CachedWeekSummary?
     @Published var leagueWeekSummary: CachedWeekSummary?
@@ -52,6 +66,7 @@ final class AppState: ObservableObject {
     let llmSettings = LLMSettingsStore()
 
     private var modelContext: ModelContext?
+    private var preferences: UserPreferences?
     private static let activeLeagueKey = "sideline.activeLeagueLinkId"
     /// Polls MFL/Sleeper live scores while a Live Activity is active (app foreground).
     private var liveScorePollTask: Task<Void, Never>?
@@ -84,6 +99,7 @@ final class AppState: ObservableObject {
 
     func attach(context: ModelContext) {
         modelContext = context
+        loadPreferences(from: context)
         refreshPendingCount()
         refreshLinkedLeagues()
         refreshCachedSummaries()
@@ -91,6 +107,51 @@ final class AppState: ObservableObject {
             await PlayerIDCrosswalk.shared.ensureLoaded()
             await SleeperPlayerCatalog.shared.ensureLoaded()
         }
+    }
+
+    private func loadPreferences(from context: ModelContext) {
+        let prefs = UserPreferencesStore.fetchOrCreate(in: context)
+        preferences = prefs
+
+        var guardrailsDecoded = (try? JSONDecoder().decode(GuardrailSettings.self, from: prefs.guardrailsJSON))
+            ?? GuardrailSettings()
+        guardrailsDecoded.lineupDeskEnabled = true
+        guardrailsDecoded.waiverDeskEnabled = true
+        guardrailsDecoded.tradeDeskEnabled = true
+        guardrailsDecoded.draftDeskEnabled = true
+        guardrails = guardrailsDecoded
+
+        var criteria = (try? JSONDecoder().decode(AgentCriteriaBundle.self, from: prefs.agentCriteriaJSON))
+            ?? AgentCriteriaBundle()
+        criteria.lineup.enabled = true
+        criteria.waiver.enabled = true
+        criteria.trade.enabled = true
+        criteria.draft.enabled = true
+        agentCriteria = criteria
+
+        isDarkMode = prefs.isDarkMode
+        LiveActivityManager.isEnabled = prefs.liveActivityEnabled
+        UserDefaults.standard.set(prefs.fantasyProsScoringRaw, forKey: "sideline.fantasypros.scoring")
+
+        let modelsMap = UserPreferencesStore.decodeModelsByProvider(prefs.llmModelsByProviderJSON)
+        llmSettings.hydrate(
+            providerRaw: prefs.llmProviderRaw,
+            model: prefs.llmModel,
+            modelsByProvider: modelsMap
+        )
+        llmSettings.bindPersistHandler { [weak self] in
+            self?.persistUserPreferences()
+        }
+    }
+
+    private func setActiveLeagueLinkId(_ id: String?) {
+        preferences?.activeLeagueLinkId = id
+        if let id {
+            UserDefaults.standard.set(id, forKey: Self.activeLeagueKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.activeLeagueKey)
+        }
+        persistUserPreferences()
     }
 
     /// Removes leftover ScreenshotDemo franchise/proposals so normal sync uses a real MFL link.
@@ -143,19 +204,23 @@ final class AppState: ObservableObject {
     }
 
     private func restoreActiveLeague() {
-        let saved = UserDefaults.standard.string(forKey: Self.activeLeagueKey)
+        let saved = preferences?.activeLeagueLinkId
+            ?? UserDefaults.standard.string(forKey: Self.activeLeagueKey)
         if let saved, let match = linkedLeagues.first(where: { $0.id == saved }) {
             linkedFranchise = match
+            hydrateUpcomingMatchups(from: match)
             return
         }
         if let current = linkedFranchise,
            linkedLeagues.contains(where: { $0.id == current.id }) {
-            UserDefaults.standard.set(current.id, forKey: Self.activeLeagueKey)
+            setActiveLeagueLinkId(current.id)
+            hydrateUpcomingMatchups(from: current)
             return
         }
         linkedFranchise = linkedLeagues.first
         if let active = linkedFranchise {
-            UserDefaults.standard.set(active.id, forKey: Self.activeLeagueKey)
+            setActiveLeagueLinkId(active.id)
+            hydrateUpcomingMatchups(from: active)
         }
     }
 
@@ -180,11 +245,10 @@ final class AppState: ObservableObject {
         liveScorePollTask?.cancel()
         liveScorePollTask = nil
         linkedFranchise = link
-        UserDefaults.standard.set(link.id, forKey: Self.activeLeagueKey)
+        setActiveLeagueLinkId(link.id)
         team = nil
         leagueReview = nil
-        upcomingMatchups = []
-        isLoadingUpcomingMatchups = false
+        hydrateUpcomingMatchups(from: link)
         teamWeekSummary = nil
         leagueWeekSummary = nil
         statusMessage = "Switched to \(link.leagueName)"
@@ -217,8 +281,10 @@ final class AppState: ObservableObject {
             isLoadingUpcomingMatchups = false
             teamWeekSummary = nil
             leagueWeekSummary = nil
-            UserDefaults.standard.removeObject(forKey: Self.activeLeagueKey)
+            setActiveLeagueLinkId(nil)
         }
+        LeagueScheduleStore.clear(linked: link)
+        LeagueRulesStore.clear(linked: link)
         refreshLinkedLeagues()
         if wasActive, let next = linkedFranchise {
             Task {
@@ -231,11 +297,57 @@ final class AppState: ObservableObject {
     }
 
     func saveGuardrails() {
-        GuardrailEngine.save(guardrails)
+        persistUserPreferences()
     }
 
     func saveAgentCriteria() {
+        persistUserPreferences()
+    }
+
+    func setDarkMode(_ enabled: Bool) {
+        isDarkMode = enabled
+        persistUserPreferences()
+    }
+
+    func setLiveActivityEnabled(_ enabled: Bool) {
+        LiveActivityManager.isEnabled = enabled
+        persistUserPreferences()
+    }
+
+    func setFantasyProsScoring(_ scoring: FantasyProsScoring) {
+        FantasyProsClient.scoring = scoring
+        persistUserPreferences()
+    }
+
+    /// Flush preferences into SwiftData (and keep a short UserDefaults mirror for migration safety).
+    func persistUserPreferences() {
+        guard let context = modelContext else { return }
+        let prefs = preferences ?? UserPreferencesStore.fetchOrCreate(in: context)
+        preferences = prefs
+
+        prefs.llmProviderRaw = llmSettings.provider.rawValue
+        prefs.llmModel = llmSettings.model
+        prefs.llmModelsByProviderJSON = UserPreferencesStore.encodeModelsByProvider(llmSettings.modelsByProvider)
+        prefs.guardrailsJSON = (try? JSONEncoder().encode(guardrails)) ?? prefs.guardrailsJSON
+        prefs.agentCriteriaJSON = (try? JSONEncoder().encode(agentCriteria)) ?? prefs.agentCriteriaJSON
+        prefs.isDarkMode = isDarkMode
+        prefs.liveActivityEnabled = LiveActivityManager.isEnabled
+        prefs.fantasyProsScoringRaw = FantasyProsClient.scoring.rawValue
+        prefs.activeLeagueLinkId = linkedFranchise?.id ?? prefs.activeLeagueLinkId
+
+        UserPreferencesStore.save(prefs, in: context)
+
+        // Legacy mirrors so older code paths / mid-upgrade builds stay coherent.
+        GuardrailEngine.save(guardrails)
         AgentCriteriaStore.save(agentCriteria)
+        UserDefaults.standard.set(isDarkMode, forKey: "sideline.appearance.darkMode")
+        UserDefaults.standard.set(LiveActivityManager.isEnabled, forKey: LiveActivityManager.enabledKey)
+        UserDefaults.standard.set(FantasyProsClient.scoring.rawValue, forKey: "sideline.fantasypros.scoring")
+        if let id = prefs.activeLeagueLinkId {
+            UserDefaults.standard.set(id, forKey: Self.activeLeagueKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.activeLeagueKey)
+        }
     }
 
     /// Permanently deletes this device’s Sideline account data (local identity, leagues,
@@ -256,11 +368,15 @@ final class AppState: ObservableObject {
             wipe(ActivityEvent.self)
             wipe(PersistedWeekSummary.self)
             wipe(LinkedFranchise.self)
+            wipe(UserPreferences.self)
             try? context.save()
+            preferences = nil
         }
 
         KeychainStore.deleteAll()
+        llmSettings.bindPersistHandler {}
         llmSettings.resetForAccountDeletion()
+        UserDefaults.standard.removeObject(forKey: "sideline.prefs.migratedToSwiftData")
 
         let defaultsKeys = [
             Self.activeLeagueKey,
@@ -271,15 +387,22 @@ final class AppState: ObservableObject {
             LiveActivityManager.enabledKey,
             "sideline.propsTab.visible",
             LiveActivityPushClient.backendURLKey,
-            LiveActivityPushClient.registerSecretKey
+            LiveActivityPushClient.registerSecretKey,
+            "sideline.llm.provider",
+            "sideline.llm.model"
         ]
         for key in defaultsKeys {
             UserDefaults.standard.removeObject(forKey: key)
+        }
+        for provider in LLMProvider.allCases {
+            UserDefaults.standard.removeObject(forKey: "sideline.llm.model.\(provider.rawValue)")
         }
 
         Task { await DataCache.shared.clearAll() }
         Task { await FantasyProsIntelService.shared.reset() }
         Task { await OddsIntelService.shared.reset() }
+        LeagueScheduleStore.clearAll()
+        LeagueRulesStore.clearAll()
 
         team = nil
         linkedFranchise = nil
@@ -296,6 +419,7 @@ final class AppState: ObservableObject {
         pendingCount = 0
         guardrails = GuardrailSettings()
         agentCriteria = AgentCriteriaBundle()
+        isDarkMode = false
         showApprovals = false
         showSettings = false
         showConnect = false
@@ -310,6 +434,7 @@ final class AppState: ObservableObject {
         leagueReview = nil
         isLoadingLeague = false
         isLoadingProps = false
+        propsLoadDepth = 0
         followUpProposal = nil
         teamWeekSummary = nil
         leagueWeekSummary = nil
@@ -480,6 +605,8 @@ final class AppState: ObservableObject {
             playerIdsWithProps = []
             return
         }
+        beginPropsLoad()
+        defer { endPropsLoad() }
         let live = !isViewingHistoricWeek && DataCache.hasLiveGames(in: team)
         await OddsIntelService.shared.ensureLoaded(
             players: team.allRostered,
@@ -494,7 +621,8 @@ final class AppState: ObservableObject {
     /// Keep Lock Screen Live Activity fresh by polling host live scores while the app is open.
     /// Background updates rely on the Cloudflare Worker → APNs push path.
     private func updateLiveScorePolling(team: TeamSnapshot) {
-        let live = team.starters.contains { $0.gameLockState == "started" }
+        let live = team.hasStartedOrFinalGames
+            && (team.starters + team.opponentStarters).contains { $0.gameLockState == "started" }
         guard LiveActivityManager.isEnabled, live else {
             liveScorePollTask?.cancel()
             liveScorePollTask = nil
@@ -507,7 +635,9 @@ final class AppState: ObservableObject {
                 guard !Task.isCancelled else { break }
                 guard let self else { break }
                 guard LiveActivityManager.isEnabled else { break }
-                let stillLive = self.team?.starters.contains { $0.gameLockState == "started" } == true
+                let stillLive = self.team.map { snap in
+                    (snap.starters + snap.opponentStarters).contains { $0.gameLockState == "started" }
+                } == true
                 guard stillLive else { break }
                 // Avoid stacking syncs if user is already refreshing.
                 guard !self.isSyncing else { continue }
@@ -546,6 +676,17 @@ final class AppState: ObservableObject {
     }
 
     private func refreshUpcomingMatchups(linked: LinkedFranchise) async {
+        // Season schedule is fixed — hydrate from disk and never re-fetch when present.
+        if let cached = LeagueScheduleStore.upcoming(
+            linked: linked,
+            afterWeek: currentSeasonWeek,
+            limit: 4
+        ) {
+            upcomingMatchups = cached
+            isLoadingUpcomingMatchups = false
+            return
+        }
+
         isLoadingUpcomingMatchups = true
         defer { isLoadingUpcomingMatchups = false }
         do {
@@ -570,9 +711,24 @@ final class AppState: ObservableObject {
                     throughWeek: seasonEndWeek
                 )
             }
-            upcomingMatchups = rows
+            upcomingMatchups = Array(rows.prefix(4))
         } catch {
             // Soft — keep prior list if schedule fetch fails.
+        }
+    }
+
+    /// Instant UI from disk when switching leagues / cold-restoring an active link.
+    private func hydrateUpcomingMatchups(from linked: LinkedFranchise) {
+        if let cached = LeagueScheduleStore.upcoming(
+            linked: linked,
+            afterWeek: currentSeasonWeek,
+            limit: 4
+        ) {
+            upcomingMatchups = cached
+            isLoadingUpcomingMatchups = false
+        } else {
+            upcomingMatchups = []
+            isLoadingUpcomingMatchups = false
         }
     }
 
@@ -947,11 +1103,11 @@ final class AppState: ObservableObject {
     }
 
     private func activateLinked(_ linked: LinkedFranchise) {
-        UserDefaults.standard.set(linked.id, forKey: Self.activeLeagueKey)
+        linkedFranchise = linked
+        setActiveLeagueLinkId(linked.id)
         team = nil
         leagueReview = nil
-        upcomingMatchups = []
-        isLoadingUpcomingMatchups = false
+        hydrateUpcomingMatchups(from: linked)
         teamWeekSummary = nil
         leagueWeekSummary = nil
         refreshLinkedLeagues()
@@ -1186,6 +1342,9 @@ final class AppState: ObservableObject {
             log("Approved \(proposal.title)", detail: result)
             removeResolvedProposal(proposal)
             refreshPendingCount()
+            if pendingCount == 0 {
+                showApprovals = false
+            }
             await syncTeam(week: selectedWeek)
         } catch {
             errorMessage = error.localizedDescription
@@ -1197,6 +1356,9 @@ final class AppState: ObservableObject {
         log("Rejected \(proposal.title)")
         removeResolvedProposal(proposal)
         refreshPendingCount()
+        if pendingCount == 0 {
+            showApprovals = false
+        }
     }
 
     func openFollowUpChat(for proposal: ActionProposal) {
@@ -1508,7 +1670,7 @@ final class AppState: ObservableObject {
                 .init(name: "RB", min: 2, max: 2),
                 .init(name: "WR", min: 3, max: 3),
                 .init(name: "TE", min: 1, max: 1),
-                .init(name: "FLEX", min: 1, max: 1),
+                .init(name: "RB/WR/TE", min: 1, max: 1),
                 .init(name: "PK", min: 1, max: 1)
             ],
             usesSalaries: true,

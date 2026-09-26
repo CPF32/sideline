@@ -20,13 +20,12 @@ enum MFLMatchupScores {
         week: Int,
         names: [String: String]
     ) -> [Pair] {
-        _ = week
-        let scoreMap = franchiseScores(liveScoring: liveScoring, weeklyResults: weeklyResults, schedule: schedule)
+        let scoreMap = franchiseScores(liveScoring: liveScoring, weeklyResults: weeklyResults, schedule: nil)
         // Prefer schedule for who plays whom; scores overlay from live/weekly.
         let rawPairs =
-            parsePairs(from: schedule, roots: ["schedule"])
-            ?? parsePairs(from: liveScoring, roots: ["liveScoring"])
-            ?? parsePairs(from: weeklyResults, roots: ["weeklyResults"])
+            parsePairs(from: schedule, roots: ["schedule"], week: week)
+            ?? parsePairs(from: liveScoring, roots: ["liveScoring"], week: week)
+            ?? parsePairs(from: weeklyResults, roots: ["weeklyResults"], week: week)
             ?? []
 
         return rawPairs.map { pair in
@@ -136,7 +135,7 @@ enum MFLMatchupScores {
 
     // MARK: - Pairings
 
-    private static func parsePairs(from data: Data?, roots: [String]) -> [Pair]? {
+    private static func parsePairs(from data: Data?, roots: [String], week: Int) -> [Pair]? {
         guard let data,
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return nil }
@@ -149,28 +148,56 @@ enum MFLMatchupScores {
         }
 
         for container in containers {
-            if let pairs = matchups(from: container), !pairs.isEmpty {
+            if let pairs = matchups(from: container, week: week), !pairs.isEmpty {
                 return pairs
             }
         }
         return nil
     }
 
-    private static func matchups(from container: [String: Any]) -> [Pair]? {
+    private static func matchups(from container: [String: Any], week: Int) -> [Pair]? {
+        // Full-season shape: weeklySchedule = [ { week, matchup }, ... ]
+        let weekly = arrayOfDicts(container["weeklySchedule"])
+        if !weekly.isEmpty {
+            for node in weekly {
+                let w = intValue(node["week"]) ?? intValue(node["id"]) ?? 0
+                guard w == week else { continue }
+                if let pairs = pairsFromMatchupRows(arrayOfDicts(node["matchup"])) {
+                    return pairs
+                }
+            }
+        }
+
         let matchupAny = (container["weeklySchedule"] as? [String: Any])?["matchup"]
             ?? container["matchup"]
             ?? (container["schedule"] as? [String: Any])?["matchup"]
             ?? (container["schedule"] as? [String: Any]).flatMap { ($0["weeklySchedule"] as? [String: Any])?["matchup"] }
 
         let matchupRows = arrayOfDicts(matchupAny)
-        if !matchupRows.isEmpty {
-            let pairs = matchupRows.compactMap { row -> Pair? in
-                let sides = arrayOfDicts(row["franchise"]).map(parseSide)
-                guard sides.count >= 2 else { return nil }
-                return Pair(home: sides[0], away: sides[1])
-            }
-            return pairs.isEmpty ? nil : pairs
+        // Flat matchups may carry a week attribute — keep only the selected week when present.
+        let filtered: [[String: Any]]
+        if matchupRows.contains(where: { intValue($0["week"]) != nil }) {
+            filtered = matchupRows.filter { intValue($0["week"]) == week }
+        } else {
+            filtered = matchupRows
         }
+        return pairsFromMatchupRows(filtered)
+    }
+
+    private static func pairsFromMatchupRows(_ matchupRows: [[String: Any]]) -> [Pair]? {
+        guard !matchupRows.isEmpty else { return nil }
+        let pairs = matchupRows.compactMap { row -> Pair? in
+            let sides = arrayOfDicts(row["franchise"]).map(parseSide)
+            guard sides.count >= 2 else { return nil }
+            return Pair(home: sides[0], away: sides[1])
+        }
+        return pairs.isEmpty ? nil : pairs
+    }
+
+    private static func intValue(_ any: Any?) -> Int? {
+        if let i = any as? Int { return i }
+        if let s = any as? String { return Int(s) }
+        if let d = any as? Double { return Int(d) }
         return nil
     }
 
@@ -181,7 +208,9 @@ enum MFLMatchupScores {
     }
 
     private static func scoreValue(_ row: [String: Any]) -> Double? {
-        if let direct = doubleValue(row["score"] ?? row["pts"] ?? row["points"] ?? row["pf"]) {
+        // Never use `pf` here — on schedule/standings payloads that is season points-for,
+        // not this week's live/final matchup total.
+        if let direct = doubleValue(row["score"] ?? row["pts"] ?? row["points"]) {
             return direct
         }
         let players = arrayOfDicts(row["player"])

@@ -7,6 +7,7 @@ import Foundation
 /// - `.live` — 1 minute (matchups / live scoring / schedule while games are on)
 /// - `.liveAware(hasLiveGames:)` — 1 minute if any related game is live, else 1 hour
 /// - `.day` / `.week` — catalogs and ID crosswalks
+/// - `.permanent` — fantasy league/franchise schedules (fixed for the season; never recheck)
 actor DataCache {
     static let shared = DataCache()
 
@@ -16,6 +17,7 @@ actor DataCache {
         case liveAware(hasLiveGames: Bool)
         case day
         case week
+        case permanent
 
         var ttl: TimeInterval {
             switch self {
@@ -24,6 +26,7 @@ actor DataCache {
             case .liveAware(let live): return live ? 60 : 3_600
             case .day: return 86_400
             case .week: return 86_400 * 7
+            case .permanent: return .infinity
             }
         }
     }
@@ -58,14 +61,19 @@ actor DataCache {
 
     func get(_ key: String, policy: Policy) -> Data? {
         let ttl = policy.ttl
-        if let hit = memory[key], Date().timeIntervalSince(hit.storedAt) < ttl {
+        if let hit = memory[key], isFresh(hit.storedAt, ttl: ttl) {
             return hit.data
         }
-        if let disk = readDisk(key), Date().timeIntervalSince(disk.storedAt) < ttl {
+        if let disk = readDisk(key), isFresh(disk.storedAt, ttl: ttl) {
             memory[key] = disk
             return disk.data
         }
         return nil
+    }
+
+    private func isFresh(_ storedAt: Date, ttl: TimeInterval) -> Bool {
+        if ttl.isInfinite { return true }
+        return Date().timeIntervalSince(storedAt) < ttl
     }
 
     func age(of key: String) -> TimeInterval? {

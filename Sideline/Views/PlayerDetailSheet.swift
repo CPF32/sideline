@@ -112,8 +112,10 @@ struct PlayerDetailSheet: View {
     /// True when bio, props, rankings, or notes already have something to show.
     private var hasRenderableBody: Bool {
         if !oddsProps.isEmpty { return true }
-        if hasRankingsSection { return true }
+        if hasRankingsSectionContent { return true }
         if !notesBySource.isEmpty { return true }
+        if OddsAPIClient.hasAPIKey { return true }
+        if FantasyProsClient.hasAPIKey { return true }
         if let detail, !Self.isEmptyProfile(detail) { return true }
         // Bio strip filled from catalog counts — avoid blank "Loading profile…" flash.
         if detail?.age != nil || detail?.height != nil || detail?.weight != nil || detail?.yearsExp != nil {
@@ -142,13 +144,21 @@ struct PlayerDetailSheet: View {
 
     private var headerBlock: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(player.name)
-                .font(BrandTheme.display(28, weight: .bold))
-                .foregroundStyle(BrandTheme.ink)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(player.name)
+                    .font(BrandTheme.display(28, weight: .bold))
+                    .foregroundStyle(BrandTheme.ink)
+                if let tag = InjuryStatusWeight.shortDisplayTag(player.injuryStatus ?? detail?.injury) {
+                    Text(tag)
+                        .font(BrandTheme.body(14, weight: .bold))
+                        .foregroundStyle(BrandTheme.danger)
+                        .accessibilityLabel("Injury status \(tag)")
+                }
+            }
             HStack(spacing: 8) {
                 Text(player.position)
                     .font(BrandTheme.body(14, weight: .semibold))
-                    .foregroundStyle(BrandTheme.ink)
+                    .foregroundStyle(BrandTheme.positionColor(for: player.position))
                 if !player.team.isEmpty {
                     Text(player.team)
                         .font(BrandTheme.body(14))
@@ -164,11 +174,6 @@ struct PlayerDetailSheet: View {
                         .font(BrandTheme.mono(11, weight: .semibold))
                         .foregroundStyle(BrandTheme.ink.opacity(0.65))
                 }
-            }
-            if let injury = player.injuryStatus ?? detail?.injury, !injury.isEmpty {
-                Text(injury)
-                    .font(BrandTheme.body(13, weight: .semibold))
-                    .foregroundStyle(BrandTheme.danger)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -203,6 +208,8 @@ struct PlayerDetailSheet: View {
             VStack(alignment: .leading, spacing: BrandTheme.space(10)) {
                 if let proj = player.projectedPoints {
                     stripStat(label: "Proj", value: String(format: "%.1f", proj), kind: .projected)
+                } else if player.treatsMissingProjectionAsZero {
+                    stripStat(label: "Proj", value: "0.0", kind: .projected)
                 }
                 let lock = player.gameLockState ?? "upcoming"
                 if lock == "started" || lock == "final", let actual = player.actualPoints {
@@ -211,7 +218,7 @@ struct PlayerDetailSheet: View {
                         value: String(format: "%.1f", actual),
                         kind: lock == "started" ? .live : .final
                     )
-                } else if player.projectedPoints == nil {
+                } else if player.projectedPoints == nil, !player.treatsMissingProjectionAsZero {
                     Text("No projection")
                         .font(BrandTheme.body(12))
                         .foregroundStyle(BrandTheme.muted)
@@ -229,6 +236,8 @@ struct PlayerDetailSheet: View {
             VStack(alignment: .leading, spacing: 5) {
                 if let salary = player.salary {
                     stripKV("Salary", SalaryFormat.compact(salary))
+                } else if appState.team?.leagueRules?.usesSalaries == true {
+                    stripKV("Salary", "—")
                 }
                 if let year = player.contractYear {
                     stripKV("Contract", String(year))
@@ -316,14 +325,16 @@ struct PlayerDetailSheet: View {
     private var showsMarketSection: Bool {
         if player.gameLockState == "bye" { return false }
         if !oddsProps.isEmpty { return true }
-        // Show empty-state only after load finishes (avoid "No props" flash while fetching).
-        return OddsAPIClient.hasAPIKey && !isLoading
+        // Reserve props slot while fetching when a key is on device (no flash / no jump).
+        return OddsAPIClient.hasAPIKey
     }
 
     @ViewBuilder
     private var marketSection: some View {
         profileSection(title: "PROPS", source: oddsProps.first?.bookmaker ?? (OddsAPIClient.hasAPIKey ? "Odds API" : nil)) {
-            if oddsProps.isEmpty {
+            if isLoading && oddsProps.isEmpty {
+                propsSkeletonRows
+            } else if oddsProps.isEmpty {
                 Text("No player props matched for \(player.name) yet.")
                     .font(BrandTheme.body(13))
                     .foregroundStyle(BrandTheme.muted)
@@ -336,6 +347,26 @@ struct PlayerDetailSheet: View {
                 }
             }
         }
+    }
+
+    private var propsSkeletonRows: some View {
+        VStack(spacing: 0) {
+            ForEach(0..<4, id: \.self) { index in
+                if index > 0 { hairline }
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text("Rush yards")
+                        .font(BrandTheme.body(14))
+                        .foregroundStyle(BrandTheme.muted)
+                    Spacer(minLength: 8)
+                    Text("O 62.5 (-110)")
+                        .font(BrandTheme.mono(13, weight: .semibold))
+                        .foregroundStyle(BrandTheme.ink)
+                }
+                .padding(.vertical, BrandTheme.space(9))
+                .redacted(reason: .placeholder)
+            }
+        }
+        .accessibilityLabel("Loading props")
     }
 
     // MARK: - Bio (compact, beside franchise)
@@ -358,6 +389,12 @@ struct PlayerDetailSheet: View {
     // MARK: - Rankings
 
     private var hasRankingsSection: Bool {
+        if hasRankingsSectionContent { return true }
+        // Reserve rankings slot while FantasyPros is loading when a key is present.
+        return FantasyProsClient.hasAPIKey && isLoading
+    }
+
+    private var hasRankingsSectionContent: Bool {
         guard let detail else { return false }
         return detail.fpRankECR != nil || detail.fpRosRank != nil
             || detail.fpProjection != nil || detail.fpTier != nil
@@ -365,15 +402,33 @@ struct PlayerDetailSheet: View {
 
     @ViewBuilder
     private var rankingsSection: some View {
-        if let detail {
-            let rows = rankingRows(from: detail)
-            profileSection(title: "RANKINGS", source: "FantasyPros") {
+        profileSection(title: "RANKINGS", source: "FantasyPros") {
+            if hasRankingsSectionContent, let detail {
+                let rows = rankingRows(from: detail)
                 VStack(spacing: 0) {
                     ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                         if index > 0 { hairline }
                         detailRow(row.0, row.1, mono: true)
                     }
                 }
+            } else if isLoading {
+                VStack(spacing: 0) {
+                    ForEach(["Weekly ECR", "Tier", "ROS"], id: \.self) { label in
+                        HStack {
+                            Text(label)
+                                .font(BrandTheme.body(14))
+                                .foregroundStyle(BrandTheme.muted)
+                            Spacer()
+                            Text("#12")
+                                .font(BrandTheme.mono(14, weight: .semibold))
+                                .foregroundStyle(BrandTheme.ink)
+                                .redacted(reason: .placeholder)
+                        }
+                        .padding(.vertical, BrandTheme.space(9))
+                        if label != "ROS" { hairline }
+                    }
+                }
+                .accessibilityLabel("Loading rankings")
             }
         }
     }

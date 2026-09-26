@@ -4,6 +4,8 @@ import SwiftUI
 struct LeaguePageHeader<Accessory: View>: View {
     let leagueName: String
     let subtitle: String
+    /// Optional detail after the subtitle (e.g. season PF) — keep as a fixed slot to avoid layout jump.
+    var subtitleDetail: AnyView? = nil
     var trailing: AnyView? = nil
     var footnote: String? = nil
     @ViewBuilder var accessory: () -> Accessory
@@ -11,12 +13,14 @@ struct LeaguePageHeader<Accessory: View>: View {
     init(
         leagueName: String,
         subtitle: String,
+        subtitleDetail: AnyView? = nil,
         trailing: AnyView? = nil,
         footnote: String? = nil,
         @ViewBuilder accessory: @escaping () -> Accessory = { EmptyView() }
     ) {
         self.leagueName = leagueName
         self.subtitle = subtitle
+        self.subtitleDetail = subtitleDetail
         self.trailing = trailing
         self.footnote = footnote
         self.accessory = accessory
@@ -30,18 +34,26 @@ struct LeaguePageHeader<Accessory: View>: View {
                 .lineLimit(2)
                 .minimumScaleFactor(0.85)
 
-            HStack(alignment: .firstTextBaseline) {
-                Text(subtitle)
-                    .font(BrandTheme.body(14))
-                    .foregroundStyle(BrandTheme.muted)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(subtitle)
+                            .font(BrandTheme.body(14))
+                            .foregroundStyle(BrandTheme.muted)
+                            .lineLimit(1)
+                        if let subtitleDetail {
+                            subtitleDetail
+                        }
+                    }
                     .lineLimit(1)
-                Spacer(minLength: 8)
-                if let trailing {
-                    trailing
+                    Spacer(minLength: 8)
+                    if let trailing {
+                        trailing
+                    }
                 }
-            }
 
-            accessory()
+                accessory()
+            }
 
             if let footnote, !footnote.isEmpty {
                 Text(footnote)

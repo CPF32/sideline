@@ -41,7 +41,7 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_UIRequiresFullScreen: YES
-        INFOPLIST_KEY_NSCameraUsageDescription: Sideline uses the camera to scan an API key from a QR code or on-screen text.
+        INFOPLIST_KEY_NSCameraUsageDescription: Sideline uses the camera to scan API keys and ESPN cookies from a QR code or on-screen text.
         INFOPLIST_KEY_NSSupportsLiveActivities: YES
         CODE_SIGN_ENTITLEMENTS: Sideline/Sideline.entitlements
         CODE_SIGN_STYLE: Automatic
@@ -62,7 +62,7 @@ targets:
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         CFBundleDisplayName: Sideline
-        NSCameraUsageDescription: Sideline uses the camera to scan an API key from a QR code or on-screen text.
+        NSCameraUsageDescription: Sideline uses the camera to scan API keys and ESPN cookies from a QR code or on-screen text.
         NSSupportsLiveActivities: true
         NSSupportsLiveActivitiesFrequentUpdates: true
         NSAppTransportSecurity:

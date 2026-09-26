@@ -339,15 +339,15 @@ enum AgentOrchestrator {
         }
 
         let slots = team.leagueRules?.starterSlots ?? []
-        for slot in slots where !slot.name.contains("/") {
+        for slot in slots where !LeagueRules.isFlexSlotName(slot.name) {
             for _ in 0..<max(slot.min, 1) {
                 take(allowed: [slot.name.uppercased()], slot: slot.name.uppercased())
             }
         }
-        for slot in slots where slot.name.contains("/") {
-            let allowed = Set(slot.name.split(separator: "/").map { String($0).uppercased() })
+        for slot in slots where LeagueRules.isFlexSlotName(slot.name) {
+            let allowed = LeagueRules.flexEligiblePositions(fromSlotName: slot.name)
             for _ in 0..<max(slot.min, 1) {
-                take(allowed: allowed, slot: slot.name.uppercased())
+                take(allowed: allowed, slot: LeagueRules.displaySlotLabel(slot.name))
             }
         }
         for id in remaining {
@@ -589,8 +589,8 @@ enum TeamContextBuilder {
                 for slot in slots {
                     let name = slot.name.uppercased()
                     let have: Int
-                    if name.contains("/") {
-                        let allowed = Set(name.split(separator: "/").map(String.init))
+                    if LeagueRules.isFlexSlotName(name) {
+                        let allowed = LeagueRules.flexEligiblePositions(fromSlotName: name)
                         // Flex: count starters whose pos is allowed (advisory — model must still assign legally).
                         have = starterPositions.filter { allowed.contains($0) }.count
                     } else {
@@ -599,7 +599,7 @@ enum TeamContextBuilder {
                     let range = slot.min == slot.max ? "\(slot.max)" : "\(slot.min)-\(slot.max)"
                     let flag: String
                     if have < slot.min { flag = "UNDER" }
-                    else if !name.contains("/"), have > slot.max { flag = "OVER" }
+                    else if !LeagueRules.isFlexSlotName(name), have > slot.max { flag = "OVER" }
                     else { flag = "OK" }
                     lines.append("- slot \(slot.name): have \(have) / need \(range) → \(flag)")
                 }
@@ -660,6 +660,34 @@ enum InjuryStatusWeight {
         if s == "q" || s == "d" || s == "doubtful" || s == "questionable" { return true }
         if s.contains("doubt") || s.contains("question") { return true }
         return false
+    }
+
+    /// Compact roster badge: IR / Q / OUT (and D) for lineup + matchup name rows.
+    static func shortDisplayTag(_ raw: String?) -> String? {
+        let s = normalized(raw)
+        guard !s.isEmpty else { return nil }
+        // MFL sometimes appends detail ("Q — knee"); use the leading token too.
+        let token = s.split(whereSeparator: { $0 == " " || $0 == "—" || $0 == "-" })
+            .first
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            ?? s
+        if s == "ir" || token == "ir" || s.hasPrefix("ir ") || s.contains("injured reserve") || s.contains(" ir") {
+            return "IR"
+        }
+        if token == "pup" || s.contains("pup") {
+            return "PUP"
+        }
+        if token == "q" || s.contains("question") {
+            return "Q"
+        }
+        // Check D before OUT — "doubtful" contains the substring "out".
+        if token == "d" || s.contains("doubt") {
+            return "D"
+        }
+        if token == "o" || token == "out" || s == "out" || s.contains("out") {
+            return "OUT"
+        }
+        return nil
     }
 }
 

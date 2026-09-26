@@ -43,6 +43,82 @@ struct LeagueRules: Hashable, Codable {
         return lines.isEmpty ? "League starter rules unavailable — infer from current starters if present." : lines.joined(separator: "\n")
     }
 
+    /// True when the slot accepts multiple discrete positions (FLEX, OP, RB/WR/TE, …).
+    /// `D/ST` is a single defense slot — the slash does **not** make it flex.
+    static func isFlexSlotName(_ raw: String) -> Bool {
+        let name = normalizeSlotName(raw)
+        if name.isEmpty { return false }
+        if isDefenseSlotName(name) { return false }
+        switch name {
+        case "FLEX", "OP", "OFF", "SUPERFLEX", "SFLEX", "DL", "DB", "DP":
+            return true
+        default:
+            return name.contains("/")
+        }
+    }
+
+    static func isDefenseSlotName(_ raw: String) -> Bool {
+        switch normalizeSlotName(raw) {
+        case "D/ST", "DST", "DEF", "DF": return true
+        default: return false
+        }
+    }
+
+    /// Positions that may fill a flex-style slot. Empty when the name is discrete.
+    static func flexEligiblePositions(fromSlotName raw: String) -> Set<String> {
+        let name = normalizeSlotName(raw)
+        guard isFlexSlotName(name) else { return [] }
+        switch name {
+        case "FLEX", "RB/WR/TE":
+            return ["RB", "WR", "TE"]
+        case "SUPERFLEX", "SFLEX", "Q/W/R/T", "QB/RB/WR/TE":
+            return ["QB", "RB", "WR", "TE"]
+        case "OP", "OFF":
+            return ["QB", "RB", "WR", "TE", "K", "PK"]
+        case "RB/WR":
+            return ["RB", "WR"]
+        case "WR/TE":
+            return ["WR", "TE"]
+        case "DL":
+            return ["DT", "DE", "DL"]
+        case "DB":
+            return ["CB", "S", "DB"]
+        case "DP":
+            return ["DT", "DE", "DL", "LB", "CB", "S", "DB"]
+        default:
+            return Set(
+                name.split(separator: "/").map { normalizeSlotName(String($0)) }
+                    .filter { !$0.isEmpty && !isDefenseSlotName($0) }
+            )
+        }
+    }
+
+    /// Compact label for matchup / roster UI (`RB/WR/TE` → `FLEX`, `D/ST` → `DEF`).
+    static func displaySlotLabel(_ raw: String) -> String {
+        let name = normalizeSlotName(raw)
+        if isDefenseSlotName(name) { return "DEF" }
+        if name == "RB/WR/TE" || name == "FLEX" { return "FLEX" }
+        if name == "SUPERFLEX" || name == "SFLEX" || name == "Q/W/R/T" || name == "QB/RB/WR/TE" {
+            return "SFLEX"
+        }
+        if name == "K" || name == "PK" { return "PK" }
+        if isFlexSlotName(name), name.contains("/") { return "FLEX" }
+        return name.isEmpty ? "—" : name
+    }
+
+    /// Stable template key for matching players into a starter slot row.
+    static func slotTemplateKey(_ raw: String) -> String {
+        let name = normalizeSlotName(raw)
+        if isFlexSlotName(name) { return "FLEX" }
+        if isDefenseSlotName(name) { return "DEF" }
+        if name == "K" || name == "PK" { return "PK" }
+        return name.isEmpty ? "OTHER" : name
+    }
+
+    static func normalizeSlotName(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    }
+
     static func parse(from leagueData: Data) -> LeagueRules {
         guard let root = try? JSONSerialization.jsonObject(with: leagueData) as? [String: Any] else {
             return LeagueRules(starterSlots: [])

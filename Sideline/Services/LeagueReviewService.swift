@@ -11,10 +11,7 @@ enum LeagueReviewService {
             host: linked.host, season: linked.season, type: "transactions",
             leagueId: linked.leagueId, extra: ["W": String(week), "COUNT": "40"], cacheTTL: 120
         )
-        async let scheduleData = try? await client.exportJSON(
-            host: linked.host, season: linked.season, type: "schedule",
-            leagueId: linked.leagueId, extra: ["W": String(week)], cacheTTL: 120
-        )
+        async let scheduleData = try? await TeamSyncService.leagueScheduleData(linked: linked)
         async let weeklyResultsData = try? await client.exportJSON(
             host: linked.host, season: linked.season, type: "weeklyResults",
             leagueId: linked.leagueId, extra: ["W": String(week)], cacheTTL: 60

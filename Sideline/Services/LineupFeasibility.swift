@@ -52,8 +52,8 @@ enum LineupFeasibility {
         var changes: [String] = []
 
         // Per discrete slot shortage (ignore flex first, then flex).
-        let discrete = slots.filter { !$0.name.contains("/") }
-        let flex = slots.filter { $0.name.contains("/") }
+        let discrete = slots.filter { !LeagueRules.isFlexSlotName($0.name) }
+        let flex = slots.filter { LeagueRules.isFlexSlotName($0.name) }
 
         var remaining = eligible
         // Reserve locked starters into their position buckets first.
@@ -102,7 +102,7 @@ enum LineupFeasibility {
 
         for slot in flex {
             let need = slot.min
-            let allowed = Set(slot.name.split(separator: "/").map { String($0).uppercased() })
+            let allowed = LeagueRules.flexEligiblePositions(fromSlotName: slot.name)
             let have = take(matching: allowed, count: need)
             if have < need {
                 let short = need - have

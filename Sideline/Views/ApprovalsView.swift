@@ -49,6 +49,11 @@ struct ApprovalsSheet: View {
             .onAppear { appState.pendingCount = pending.count }
             .onChange(of: pending.count) { _, count in
                 appState.pendingCount = count
+                // Rejecting the last proposal left an empty mid-sheet "Needs your approval"
+                // section; close so Team can restore layout.
+                if count == 0 {
+                    dismiss()
+                }
             }
             .sheet(item: $appState.followUpProposal) { proposal in
                 AgentFollowUpChatSheet(proposal: proposal)
@@ -101,15 +106,15 @@ struct ProposalRow: View {
             let p = byId[id] ?? byId[MFLNameResolver.normalizePlayerId(id)]
             lines.append((label, p?.name ?? id, ""))
         }
-        for slot in slots where !slot.name.contains("/") {
+        for slot in slots where !LeagueRules.isFlexSlotName(slot.name) {
             for _ in 0..<max(slot.min, 1) {
                 take(for: [slot.name.uppercased()], label: slot.name.uppercased())
             }
         }
-        for slot in slots where slot.name.contains("/") {
-            let allowed = Set(slot.name.split(separator: "/").map { String($0).uppercased() })
+        for slot in slots where LeagueRules.isFlexSlotName(slot.name) {
+            let allowed = LeagueRules.flexEligiblePositions(fromSlotName: slot.name)
             for _ in 0..<max(slot.min, 1) {
-                take(for: allowed, label: slot.name.uppercased())
+                take(for: allowed, label: LeagueRules.displaySlotLabel(slot.name))
             }
         }
         for id in remaining {
@@ -178,7 +183,7 @@ struct ProposalRow: View {
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
                                 Text(row.slot)
                                     .font(BrandTheme.body(12, weight: .semibold))
-                                    .foregroundStyle(BrandTheme.muted)
+                                    .foregroundStyle(BrandTheme.positionColor(for: row.slot))
                                     .frame(width: 56, alignment: .leading)
                                 Text(row.name)
                                     .font(BrandTheme.body(14, weight: .medium))

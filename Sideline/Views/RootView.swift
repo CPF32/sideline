@@ -4,6 +4,7 @@ import SwiftData
 struct RootView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     /// Screenshot runs seed async — hold the tab UI until demo data is ready.
     @State private var isScreenshotReady = !ScreenshotDemo.isEnabled
 
@@ -22,6 +23,11 @@ struct RootView: View {
             Task {
                 await ScreenshotDemo.applyIfNeeded(appState: appState, context: modelContext)
                 isScreenshotReady = true
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background || phase == .inactive {
+                appState.persistUserPreferences()
             }
         }
     }

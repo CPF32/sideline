@@ -56,17 +56,19 @@ private func labeledField<Content: View>(_ title: String, @ViewBuilder content: 
 
 struct ThemeSettingsPage: View {
     @EnvironmentObject private var appState: AppState
-    @AppStorage("sideline.appearance.darkMode") private var isDarkMode = false
-    @AppStorage("sideline.liveActivity.enabled") private var liveActivityEnabled = false
+    @State private var liveActivityEnabled = LiveActivityManager.isEnabled
 
     var body: some View {
         SettingsPageChrome(title: "Appearance") {
-            Toggle(isOn: $isDarkMode) {
+            Toggle(isOn: Binding(
+                get: { appState.isDarkMode },
+                set: { appState.setDarkMode($0) }
+            )) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Dark mode")
                         .font(BrandTheme.body(16, weight: .semibold))
                         .foregroundStyle(BrandTheme.ink)
-                    Text(isDarkMode ? "Entire app uses dark colors." : "Entire app uses light colors.")
+                    Text(appState.isDarkMode ? "Entire app uses dark colors." : "Entire app uses light colors.")
                         .font(BrandTheme.body(13))
                         .foregroundStyle(BrandTheme.muted)
                 }
@@ -105,7 +107,9 @@ struct ThemeSettingsPage: View {
                             .stroke(BrandTheme.hairline, lineWidth: 1)
                     )
             )
+            .onAppear { liveActivityEnabled = LiveActivityManager.isEnabled }
             .onChange(of: liveActivityEnabled) { _, enabled in
+                appState.setLiveActivityEnabled(enabled)
                 if !enabled {
                     Task { await LiveActivityManager.endAll() }
                 } else if let team = appState.team, let linked = appState.linkedFranchise {
@@ -117,10 +121,6 @@ struct ThemeSettingsPage: View {
                     )
                 }
             }
-
-            Text("Sideline ignores the system light/dark setting.")
-                .font(BrandTheme.body(13))
-                .foregroundStyle(BrandTheme.muted)
         }
     }
 }
@@ -131,78 +131,117 @@ struct LeagueSettingsPage: View {
     var body: some View {
         SettingsPageChrome(title: "Leagues") {
             if appState.linkedLeagues.isEmpty {
-                Text("No leagues linked.")
-                    .foregroundStyle(BrandTheme.muted)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("No leagues linked")
+                        .font(BrandTheme.body(16, weight: .semibold))
+                        .foregroundStyle(BrandTheme.ink)
+                    Text("Connect MFL, Sleeper, or ESPN to sync your roster and run agents.")
+                        .font(BrandTheme.body(14))
+                        .foregroundStyle(BrandTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(BrandTheme.pageGutterCompact)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(leagueCardBackground(active: false))
             } else {
+                Text("CONNECTED")
+                    .font(BrandTheme.display(11, weight: .semibold))
+                    .tracking(1)
+                    .foregroundStyle(BrandTheme.muted)
+
                 ForEach(appState.linkedLeagues, id: \.id) { link in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text(link.provider.shortName.uppercased())
-                                .font(BrandTheme.display(10, weight: .bold))
-                                .tracking(0.8)
-                                .foregroundStyle(BrandTheme.muted)
-                            if appState.linkedFranchise?.id == link.id {
-                                Text("ACTIVE")
-                                    .font(BrandTheme.display(10, weight: .bold))
-                                    .tracking(0.8)
-                                    .foregroundStyle(BrandTheme.accent)
-                            }
-                            Spacer()
-                        }
-                        meta("League", link.leagueName)
-                        meta("Team", link.franchiseName)
-                        meta("Season", "\(link.season)")
-                        if link.isMFL {
-                            meta("Host", link.host)
-                        }
-                        HStack(spacing: 12) {
-                            if appState.linkedFranchise?.id != link.id {
-                                Button("Switch") {
-                                    appState.switchActiveLeague(link)
-                                }
-                                .buttonStyle(PrimaryButtonStyle())
-                            }
-                            Button("Remove") {
-                                appState.removeLinkedLeague(link)
-                            }
-                            .font(BrandTheme.body(14, weight: .semibold))
-                            .foregroundStyle(BrandTheme.danger)
-                        }
-                    }
-                    .padding(.vertical, 8)
-                    Divider().overlay(BrandTheme.hairline)
+                    leagueCard(link)
                 }
             }
+
             Button {
                 appState.showConnect = true
             } label: {
                 Text("Add league")
             }
             .buttonStyle(PrimaryButtonStyle())
+            .padding(.top, BrandTheme.space(4))
 
-            Text("Sideline is a hub for MFL, Sleeper, and ESPN. Approve writes lineups only for MFL; Sleeper and ESPN stay read-only.")
+            Text("Approve can write lineups for MFL only. Sleeper and ESPN stay read-only.")
                 .font(BrandTheme.body(13))
                 .foregroundStyle(BrandTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private func meta(_ title: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title.uppercased())
-                .font(BrandTheme.display(11, weight: .semibold))
-                .tracking(1)
-                .foregroundStyle(BrandTheme.muted)
-            Text(value)
-                .font(BrandTheme.body(16, weight: .medium))
-                .foregroundStyle(BrandTheme.ink)
+    private func leagueCard(_ link: LinkedFranchise) -> some View {
+        let active = appState.linkedFranchise?.id == link.id
+        let metaLine: String = {
+            var parts = [
+                link.franchiseName,
+                "\(link.season)"
+            ]
+            if link.isMFL, !link.host.isEmpty {
+                parts.append(link.host)
+            }
+            return parts.joined(separator: " · ")
+        }()
+
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                ProviderLogoView(provider: link.provider, size: 32)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(link.leagueName)
+                        .font(BrandTheme.body(17, weight: .semibold))
+                        .foregroundStyle(BrandTheme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(metaLine)
+                        .font(BrandTheme.body(13))
+                        .foregroundStyle(BrandTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                if active {
+                    Text("ACTIVE")
+                        .font(BrandTheme.display(10, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundStyle(BrandTheme.accent)
+                }
+            }
+
+            HStack(spacing: 10) {
+                if !active {
+                    Button("Make active") {
+                        appState.switchActiveLeague(link)
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                }
+
+                Button("Remove") {
+                    appState.removeLinkedLeague(link)
+                }
+                .font(BrandTheme.body(15, weight: .semibold))
+                .foregroundStyle(BrandTheme.danger)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, BrandTheme.space(12))
+                .background(
+                    RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                        .stroke(BrandTheme.danger.opacity(0.28), lineWidth: 1)
+                )
+            }
         }
+        .padding(BrandTheme.pageGutterCompact)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(leagueCardBackground(active: active))
+    }
+
+    private func leagueCardBackground(active: Bool) -> some View {
+        RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+            .fill(BrandTheme.surface)
+            .overlay(
+                RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                    .stroke(active ? BrandTheme.accent.opacity(0.45) : BrandTheme.hairline, lineWidth: 1)
+            )
     }
 }
 
 struct ModelSettingsPage: View {
-    @EnvironmentObject private var appState: AppState
     @ObservedObject var llm: LLMSettingsStore
-    @State private var saved = false
     @State private var modelSearch = ""
 
     private var filteredModels: [LLMModelOption] {
@@ -219,7 +258,10 @@ struct ModelSettingsPage: View {
         SettingsPageChrome(title: "Model") {
             labeledField("Provider") {
                 fieldShell {
-                    Picker("Provider", selection: $llm.provider) {
+                    Picker("Provider", selection: Binding(
+                        get: { llm.provider },
+                        set: { llm.selectProvider($0) }
+                    )) {
                         ForEach(LLMProvider.allCases) { p in
                             Text(p.displayName).tag(p)
                         }
@@ -228,13 +270,8 @@ struct ModelSettingsPage: View {
                     .tint(BrandTheme.ink)
                 }
             }
-            .onChange(of: llm.provider) { _, newProvider in
+            .onChange(of: llm.provider) { _, _ in
                 modelSearch = ""
-                // Reset to this provider's default only when switching providers.
-                llm.model = newProvider.defaultModel
-                llm.reloadKeyDraft()
-                llm.refreshModels(preferCheapestIfInvalid: false)
-                saved = false
             }
 
             labeledField("Search models") {
@@ -268,8 +305,7 @@ struct ModelSettingsPage: View {
                             LazyVStack(alignment: .leading, spacing: 0) {
                                 ForEach(filteredModels) { option in
                                     Button {
-                                        llm.model = option.id
-                                        saved = false
+                                        llm.selectModel(option.id)
                                     } label: {
                                         HStack(alignment: .firstTextBaseline, spacing: 10) {
                                             VStack(alignment: .leading, spacing: 2) {
@@ -312,9 +348,6 @@ struct ModelSettingsPage: View {
                         .fill(BrandTheme.surface)
                 )
             }
-            .onChange(of: llm.model) { _, _ in
-                saved = false
-            }
 
             Text(llm.modelsSourceLabel)
                 .font(BrandTheme.body(12))
@@ -325,25 +358,20 @@ struct ModelSettingsPage: View {
                 .foregroundStyle(BrandTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
 
+            Text("Selection saves automatically to the on-device database and stays selected across launches.")
+                .font(BrandTheme.body(12))
+                .foregroundStyle(BrandTheme.muted)
+
             Button {
-                llm.refreshModels()
+                llm.refreshModels(preferCheapestIfInvalid: false)
             } label: {
                 Text(llm.isLoadingModels ? "Refreshing…" : "Refresh live models")
             }
             .buttonStyle(SecondaryButtonStyle())
             .disabled(llm.isLoadingModels)
-
-            Button {
-                UserDefaults.standard.set(llm.model, forKey: "sideline.llm.model")
-                saved = true
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-            } label: {
-                Text(saved ? "Saved" : "Save model")
-            }
-            .buttonStyle(PrimaryButtonStyle())
         }
         .task {
-            llm.refreshModels()
+            llm.refreshModels(preferCheapestIfInvalid: false)
         }
     }
 }
@@ -778,7 +806,7 @@ struct FantasyProsSettingsPage: View {
                 }
                 .pickerStyle(.segmented)
                 .onChange(of: scoring) { _, newValue in
-                    FantasyProsClient.scoring = newValue
+                    appState.setFantasyProsScoring(newValue)
                     // Scoring is part of the request URL; drop in-memory intel so the next
                     // load rehydrates from the (already user-keyed) disk cache for the new scoring.
                     Task { await FantasyProsIntelService.shared.resetKeepingHTTPCache() }
@@ -788,7 +816,7 @@ struct FantasyProsSettingsPage: View {
             Button {
                 let trimmed = apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
                 KeychainStore.set(trimmed.isEmpty ? nil : trimmed, for: .fantasyProsAPIKey)
-                FantasyProsClient.scoring = scoring
+                appState.setFantasyProsScoring(scoring)
                 let ok = trimmed.isEmpty || trimmed.count >= 8
                 banner = trimmed.isEmpty ? "API key cleared." : (ok ? "FantasyPros key saved." : "Key looks too short.")
                 bannerError = !ok && !trimmed.isEmpty
@@ -871,11 +899,10 @@ struct FantasyProsSettingsPage: View {
 
 struct TeamGoalsSettingsPage: View {
     @EnvironmentObject private var appState: AppState
-    @State private var saved = false
 
     var body: some View {
-        SettingsPageChrome(title: "Team goals") {
-            Text("Shared context and hard limits for every agent desk.")
+        SettingsPageChrome(title: "Front office") {
+            Text("Shared context and desk criteria for every agent. Changes save automatically.")
                 .font(BrandTheme.body(14))
                 .foregroundStyle(BrandTheme.muted)
 
@@ -890,50 +917,60 @@ struct TeamGoalsSettingsPage: View {
                 }
             }
 
-            Text("LIMITS & GUARDRAILS")
+            Text("AGENT CRITERIA")
                 .font(BrandTheme.display(11, weight: .semibold))
                 .tracking(1)
                 .foregroundStyle(BrandTheme.muted)
                 .padding(.top, 8)
 
-            HStack {
-                Text("Max FAAB bid")
-                    .font(BrandTheme.body(16))
-                    .foregroundStyle(BrandTheme.ink)
-                Spacer()
-                TextField("None", value: $appState.guardrails.maxFAABBid, format: .number)
-                    .keyboardType(.decimalPad)
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: BrandTheme.space(100))
-                    .padding(BrandTheme.space(10))
-                    .background(
+            VStack(spacing: 0) {
+                frontOfficeCriteriaLink("Lineup desk") { LineupCriteriaPage() }
+                Divider().overlay(BrandTheme.hairline)
+                frontOfficeCriteriaLink("Waiver / FA desk") { WaiverCriteriaPage() }
+                Divider().overlay(BrandTheme.hairline)
+                frontOfficeCriteriaLink("Trade desk") { TradeCriteriaPage() }
+                Divider().overlay(BrandTheme.hairline)
+                frontOfficeCriteriaLink("Draft desk") { DraftCriteriaPage() }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                    .fill(BrandTheme.surface)
+                    .overlay(
                         RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
-                            .fill(BrandTheme.surface)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
-                                    .stroke(BrandTheme.hairline, lineWidth: 1)
-                            )
+                            .stroke(BrandTheme.hairline, lineWidth: 1)
                     )
-            }
-
-            Stepper(value: $appState.guardrails.stopHoursBeforeKickoff, in: 0...12, step: 1) {
-                Text("Stop \(Int(appState.guardrails.stopHoursBeforeKickoff))h before kickoff")
-            }
-
-            Text("Player lock lists (never bench / drop / trade) can be expanded next — IDs are stored in guardrails.")
-                .font(BrandTheme.body(13))
-                .foregroundStyle(BrandTheme.muted)
-
-            Button {
-                appState.saveAgentCriteria()
-                appState.saveGuardrails()
-                saved = true
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-            } label: {
-                Text(saved ? "Saved" : "Save")
-            }
-            .buttonStyle(PrimaryButtonStyle())
+            )
         }
+        .onChange(of: appState.agentCriteria) { _, _ in
+            appState.saveAgentCriteria()
+        }
+        .onDisappear {
+            appState.saveAgentCriteria()
+        }
+    }
+
+    private func frontOfficeCriteriaLink<Destination: View>(
+        _ title: String,
+        @ViewBuilder destination: () -> Destination
+    ) -> some View {
+        NavigationLink {
+            destination()
+                .environmentObject(appState)
+        } label: {
+            HStack {
+                Text(title)
+                    .font(BrandTheme.body(16, weight: .semibold))
+                    .foregroundStyle(BrandTheme.ink)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(BrandTheme.muted)
+            }
+            .padding(.horizontal, BrandTheme.pageGutterTight)
+            .padding(.vertical, BrandTheme.space(14))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -957,11 +994,10 @@ struct AgentCriteriaListPage: View {
 
 struct LineupCriteriaPage: View {
     @EnvironmentObject private var appState: AppState
-    @State private var saved = false
 
     var body: some View {
         SettingsPageChrome(title: "Lineup") {
-            Text("Builds a legal week lineup from league starter slots, respects game locks (won't newly start players who already played), and adjusts IR/taxi when needed.")
+            Text("Builds a legal week lineup from league starter slots, respects game locks (won't newly start players who already played), and adjusts IR/taxi when needed. Changes save automatically.")
                 .font(BrandTheme.body(13))
                 .foregroundStyle(BrandTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -979,27 +1015,20 @@ struct LineupCriteriaPage: View {
                     TextField("Optional", text: $appState.agentCriteria.lineup.stackPreference)
                 }
             }
-            saveButton
         }
-    }
-
-    private var saveButton: some View {
-        Button {
+        .onChange(of: appState.agentCriteria) { _, _ in
             appState.saveAgentCriteria()
-            saved = true
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-        } label: { Text(saved ? "Saved" : "Save lineup criteria") }
-        .buttonStyle(PrimaryButtonStyle())
+        }
+        .onDisappear { appState.saveAgentCriteria() }
     }
 }
 
 struct WaiverCriteriaPage: View {
     @EnvironmentObject private var appState: AppState
-    @State private var saved = false
 
     var body: some View {
         SettingsPageChrome(title: "Waivers") {
-            Text("Uses league-relative positional strength (weak vs strong by position), roster setup, and top free agents (YTD + last week) to propose concrete add/drops.")
+            Text("Uses league-relative positional strength (weak vs strong by position), roster setup, and top free agents (YTD + last week) to propose concrete add/drops. Changes save automatically.")
                 .font(BrandTheme.body(13))
                 .foregroundStyle(BrandTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1018,23 +1047,20 @@ struct WaiverCriteriaPage: View {
                 .tint(BrandTheme.accent)
             Toggle("Stash handcuffs", isOn: $appState.agentCriteria.waiver.stashHandcuffs)
                 .tint(BrandTheme.accent)
-            Button {
-                appState.saveAgentCriteria()
-                saved = true
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-            } label: { Text(saved ? "Saved" : "Save waiver criteria") }
-            .buttonStyle(PrimaryButtonStyle())
         }
+        .onChange(of: appState.agentCriteria) { _, _ in
+            appState.saveAgentCriteria()
+        }
+        .onDisappear { appState.saveAgentCriteria() }
     }
 }
 
 struct TradeCriteriaPage: View {
     @EnvironmentObject private var appState: AppState
-    @State private var saved = false
 
     var body: some View {
         SettingsPageChrome(title: "Trades") {
-            Text("Uses positional strength vs the league plus draft pick assets to propose player and/or pick trades.")
+            Text("Uses positional strength vs the league plus draft pick assets to propose player and/or pick trades. Changes save automatically.")
                 .font(BrandTheme.body(13))
                 .foregroundStyle(BrandTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1061,23 +1087,20 @@ struct TradeCriteriaPage: View {
                     TextField("e.g. RB depth, WR1", text: $appState.agentCriteria.trade.targetPositions)
                 }
             }
-            Button {
-                appState.saveAgentCriteria()
-                saved = true
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-            } label: { Text(saved ? "Saved" : "Save trade criteria") }
-            .buttonStyle(PrimaryButtonStyle())
         }
+        .onChange(of: appState.agentCriteria) { _, _ in
+            appState.saveAgentCriteria()
+        }
+        .onDisappear { appState.saveAgentCriteria() }
     }
 }
 
 struct DraftCriteriaPage: View {
     @EnvironmentObject private var appState: AppState
-    @State private var saved = false
 
     var body: some View {
         SettingsPageChrome(title: "Draft") {
-            Text("Advises the next pick from remaining needs and early/late round bias.")
+            Text("Advises the next pick from remaining needs and early/late round bias. Changes save automatically.")
                 .font(BrandTheme.body(13))
                 .foregroundStyle(BrandTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1098,13 +1121,11 @@ struct DraftCriteriaPage: View {
                         .lineLimit(2...4)
                 }
             }
-            Button {
-                appState.saveAgentCriteria()
-                saved = true
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-            } label: { Text(saved ? "Saved" : "Save draft criteria") }
-            .buttonStyle(PrimaryButtonStyle())
         }
+        .onChange(of: appState.agentCriteria) { _, _ in
+            appState.saveAgentCriteria()
+        }
+        .onDisappear { appState.saveAgentCriteria() }
     }
 }
 
@@ -1135,11 +1156,79 @@ struct ActivitySettingsPage: View {
 
 struct AccountSettingsPage: View {
     @EnvironmentObject private var appState: AppState
+    @State private var liveActivityEnabled = LiveActivityManager.isEnabled
     @State private var showDeleteConfirm = false
     @State private var isDeleting = false
 
     var body: some View {
         SettingsPageChrome(title: "Account") {
+            Text("APPEARANCE")
+                .font(BrandTheme.display(11, weight: .semibold))
+                .tracking(1)
+                .foregroundStyle(BrandTheme.muted)
+
+            Toggle(isOn: Binding(
+                get: { appState.isDarkMode },
+                set: { appState.setDarkMode($0) }
+            )) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Dark mode")
+                        .font(BrandTheme.body(16, weight: .semibold))
+                        .foregroundStyle(BrandTheme.ink)
+                    Text(appState.isDarkMode ? "Entire app uses dark colors." : "Entire app uses light colors.")
+                        .font(BrandTheme.body(13))
+                        .foregroundStyle(BrandTheme.muted)
+                }
+            }
+            .tint(BrandTheme.accent)
+            .padding(.horizontal, BrandTheme.pageGutterTight)
+            .padding(.vertical, BrandTheme.space(12))
+            .background(
+                RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                    .fill(BrandTheme.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                            .stroke(BrandTheme.hairline, lineWidth: 1)
+                    )
+            )
+
+            Toggle(isOn: $liveActivityEnabled) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Matchup Live Activity")
+                        .font(BrandTheme.body(16, weight: .semibold))
+                        .foregroundStyle(BrandTheme.ink)
+                    Text("Lock Screen + Dynamic Island while starters are in games. Scores refresh while Sideline is open; background updates use the Sideline live backend.")
+                        .font(BrandTheme.body(13))
+                        .foregroundStyle(BrandTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .tint(BrandTheme.accent)
+            .padding(.horizontal, BrandTheme.pageGutterTight)
+            .padding(.vertical, BrandTheme.space(12))
+            .background(
+                RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                    .fill(BrandTheme.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                            .stroke(BrandTheme.hairline, lineWidth: 1)
+                    )
+            )
+            .onAppear { liveActivityEnabled = LiveActivityManager.isEnabled }
+            .onChange(of: liveActivityEnabled) { _, enabled in
+                appState.setLiveActivityEnabled(enabled)
+                if !enabled {
+                    Task { await LiveActivityManager.endAll() }
+                } else if let team = appState.team, let linked = appState.linkedFranchise {
+                    LiveActivityManager.setLinkedLeagueCount(appState.linkedLeagues.count)
+                    LiveActivityManager.sync(
+                        from: team,
+                        linked: linked,
+                        linkedLeagueCount: appState.linkedLeagues.count
+                    )
+                }
+            }
+
             VStack(alignment: .leading, spacing: 12) {
                 Text("Delete account")
                     .font(BrandTheme.body(18, weight: .semibold))
@@ -1186,6 +1275,7 @@ struct AccountSettingsPage: View {
                             .stroke(BrandTheme.hairline, lineWidth: 1)
                     )
             )
+            .padding(.top, BrandTheme.space(8))
         }
         .confirmationDialog(
             "Delete your Sideline account?",

@@ -153,6 +153,15 @@ struct RosterPlayer: Identifiable, Hashable, Codable {
     /// League salary units from MFL (typically full dollars).
     var salary: Double? = nil
     var contractYear: Int? = nil
+    /// Host lineup slot when known (ESPN `lineupSlotId` → QB, WR, RB/WR/TE, …).
+    /// Used so matchup rows follow the actual slot, not a re-bucket by player position.
+    var lineupSlot: String? = nil
+
+    /// IR / Q / D / OUT (or IR roster slot) with no host projection → still show 0.
+    var treatsMissingProjectionAsZero: Bool {
+        if status == "ir" { return true }
+        return InjuryStatusWeight.shortDisplayTag(injuryStatus) != nil
+    }
 
     /// Prefer live/final points once the NFL game has started; otherwise projection.
     /// Never show matchup zeros / stale actuals as "live" for upcoming / unknown / bye.
@@ -162,6 +171,7 @@ struct RosterPlayer: Identifiable, Hashable, Codable {
         case "started":
             if let actual = actualPoints { return (actual, .live) }
             if let proj = projectedPoints { return (proj, .projected) }
+            if treatsMissingProjectionAsZero { return (0, .projected) }
             return nil
         case "final":
             if let actual = actualPoints { return (actual, .final) }
@@ -169,6 +179,7 @@ struct RosterPlayer: Identifiable, Hashable, Codable {
         default:
             // upcoming | bye | unknown — projection only; omit if unavailable
             if let proj = projectedPoints { return (proj, .projected) }
+            if treatsMissingProjectionAsZero { return (0, .projected) }
             return nil
         }
     }
@@ -200,9 +211,8 @@ struct RosterPlayer: Identifiable, Hashable, Codable {
         }
     }
 
-    /// Compact schedule chip: `Sun 1:00p`, `Today 8:15p`, `Tom 1:00p`.
-    static func formatKickoffSchedule(_ date: Date, now: Date = .now) -> String {
-        let cal = Calendar.current
+    /// Compact schedule chip: `Sun 1:00p`, `Mon 8:15p` (weekday abbr always).
+    static func formatKickoffSchedule(_ date: Date) -> String {
         let time: DateFormatter = {
             let f = DateFormatter()
             f.locale = Locale(identifier: "en_US_POSIX")
@@ -212,12 +222,6 @@ struct RosterPlayer: Identifiable, Hashable, Codable {
         let raw = time.string(from: date)
             .replacingOccurrences(of: "AM", with: "a")
             .replacingOccurrences(of: "PM", with: "p")
-        if cal.isDateInToday(date) {
-            return "Today \(raw)"
-        }
-        if cal.isDateInTomorrow(date) {
-            return "Tom \(raw)"
-        }
         let day = DateFormatter()
         day.locale = Locale(identifier: "en_US_POSIX")
         day.dateFormat = "EEE"
@@ -252,7 +256,8 @@ struct RosterPlayer: Identifiable, Hashable, Codable {
             gameKickoff: gameKickoff,
             gameSecondsRemaining: gameSecondsRemaining,
             salary: salary ?? self.salary,
-            contractYear: contractYear ?? self.contractYear
+            contractYear: contractYear ?? self.contractYear,
+            lineupSlot: lineupSlot
         )
     }
 }
@@ -267,10 +272,14 @@ struct MatchupSnapshot: Hashable, Codable {
     var lineupDeadline: Date?
     /// Opponent starters in active NFL games — `Name  12.3` for Live Activity cycling.
     var oppLivePlayerLines: [String] = []
+    /// Host-supplied win probability for "mine" (0...1), when the league API provides one.
+    /// None of MFL / Sleeper / ESPN return this today, so it's always computed locally —
+    /// this field exists so a future provider (or host update) can be preferred over that.
+    var myWinProbability: Double? = nil
 }
 
 /// Franchise opponent for a future (or past) week, used on the Team tab schedule strip.
-struct UpcomingMatchupPreview: Identifiable, Hashable {
+struct UpcomingMatchupPreview: Identifiable, Hashable, Codable {
     var id: Int { week }
     let week: Int
     let opponentName: String
@@ -311,6 +320,48 @@ struct TeamSnapshot: Hashable, Codable {
 
     var oppProjectedStarterTotal: Double? {
         Self.projectedTotal(opponentStarters)
+    }
+
+    /// Actual fantasy points from starters whose NFL games have started or finished.
+    /// Returns `nil` when nobody on this side has kicked off yet.
+    static func scoredSoFar(starters: [RosterPlayer]) -> Double? {
+        let played = starters.filter {
+            let lock = $0.gameLockState ?? "upcoming"
+            return lock == "started" || lock == "final"
+        }
+        guard !played.isEmpty else { return nil }
+        return played.reduce(0) { $0 + ($1.actualPoints ?? 0) }
+    }
+
+    /// True when any starter on either side has an in-progress or finished NFL game.
+    var hasStartedOrFinalGames: Bool {
+        (starters + opponentStarters).contains {
+            let lock = $0.gameLockState ?? "upcoming"
+            return lock == "started" || lock == "final"
+        }
+    }
+
+    /// Locally modeled win probability plus each side's projected final score (see
+    /// `WinProbabilityCalculator`) — `nil` when there isn't a lineup on either side yet.
+    var winProbabilityResult: WinProbabilityCalculator.Result? {
+        WinProbabilityCalculator.evaluate(mine: starters, opponent: opponentStarters)
+    }
+
+    /// Probability (0...1) that "mine" finishes with the higher score. Prefers a host-supplied
+    /// figure when present; otherwise the locally modeled result above.
+    var winProbability: Double? {
+        matchup?.myWinProbability ?? winProbabilityResult?.myProbability
+    }
+
+    /// Replace host matchup totals with points-from-players-who-have-played once the slate is live.
+    /// Avoids showing full-week projections (or stale host aggregates) as the live score.
+    func applyingScoredSoFarToMatchup() -> TeamSnapshot {
+        guard hasStartedOrFinalGames, var m = matchup else { return self }
+        m.myScore = Self.scoredSoFar(starters: starters) ?? 0
+        m.oppScore = Self.scoredSoFar(starters: opponentStarters) ?? 0
+        var copy = self
+        copy.matchup = m
+        return copy
     }
 
     private static func projectedTotal(_ players: [RosterPlayer]) -> Double? {
@@ -625,6 +676,50 @@ struct GuardrailSettings: Codable, Equatable {
     var draftDeskEnabled: Bool = true
 
     static let storageKey = "sideline.guardrails"
+}
+
+/// Single-row SwiftData document for user settings (model, guardrails, theme, etc.).
+/// API keys stay in Keychain — never written here.
+@Model
+final class UserPreferences {
+    static let singletonId = "device"
+
+    @Attribute(.unique) var id: String
+    var llmProviderRaw: String
+    var llmModel: String
+    /// JSON object `{ "openai": "gpt-4o", "openrouter": "…", … }`
+    var llmModelsByProviderJSON: Data
+    var guardrailsJSON: Data
+    var agentCriteriaJSON: Data
+    var isDarkMode: Bool
+    var liveActivityEnabled: Bool
+    var fantasyProsScoringRaw: String
+    var activeLeagueLinkId: String?
+    var updatedAt: Date
+
+    init(
+        llmProviderRaw: String = "openai",
+        llmModel: String = "gpt-4o-mini",
+        llmModelsByProviderJSON: Data = Data("{}".utf8),
+        guardrailsJSON: Data = (try? JSONEncoder().encode(GuardrailSettings())) ?? Data(),
+        agentCriteriaJSON: Data = (try? JSONEncoder().encode(AgentCriteriaBundle())) ?? Data(),
+        isDarkMode: Bool = false,
+        liveActivityEnabled: Bool = false,
+        fantasyProsScoringRaw: String = "HALF",
+        activeLeagueLinkId: String? = nil
+    ) {
+        self.id = Self.singletonId
+        self.llmProviderRaw = llmProviderRaw
+        self.llmModel = llmModel
+        self.llmModelsByProviderJSON = llmModelsByProviderJSON
+        self.guardrailsJSON = guardrailsJSON
+        self.agentCriteriaJSON = agentCriteriaJSON
+        self.isDarkMode = isDarkMode
+        self.liveActivityEnabled = liveActivityEnabled
+        self.fantasyProsScoringRaw = fantasyProsScoringRaw
+        self.activeLeagueLinkId = activeLeagueLinkId
+        self.updatedAt = .now
+    }
 }
 
 struct WaiverPayload: Codable {

@@ -22,6 +22,15 @@ enum LeagueProvider: String, Codable, CaseIterable, Identifiable {
         case .espn: return "ESPN"
         }
     }
+
+    /// Asset catalog name for the host mark (MFL / Sleeper / ESPN).
+    var logoAssetName: String {
+        switch self {
+        case .mfl: return "ProviderLogoMFL"
+        case .sleeper: return "ProviderLogoSleeper"
+        case .espn: return "ProviderLogoESPN"
+        }
+    }
 }
 
 enum SleeperError: LocalizedError {

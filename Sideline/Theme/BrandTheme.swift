@@ -47,6 +47,11 @@ enum BrandTheme {
     static let standingsDown = Color.adaptive(light: "B33A2E", dark: "F07166")
     /// Discrete “props available” mark on roster rows (true green — not lime accent).
     static let propsMark = Color.adaptive(light: "1F8A4C", dark: "3DCF7A")
+    /// "Mine" fill for the win-probability gauge — a deeper, more legible green than the
+    /// neon `accent` lime, which reads poorly as small text/fill against light backgrounds.
+    static let gaugeMine = Color.adaptive(light: "5B8A00", dark: "9FE000")
+    /// Opponent fill for the win-probability gauge (paired with `gaugeMine`).
+    static let electricOrange = Color(hex: "FF5F1F")
     static let hairline = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor.white.withAlphaComponent(0.22)
@@ -72,6 +77,42 @@ enum BrandTheme {
             ? base.withAlphaComponent(0.32)
             : base.withAlphaComponent(0.45)
     })
+
+    // MARK: - Position colors (fixed across all leagues)
+
+    /// Roster / slot position label color. Same palette whether the host is Sleeper, MFL, or ESPN.
+    /// Hues are spaced around the wheel so adjacent roster labels stay easy to tell apart.
+    static func positionColor(for raw: String) -> Color {
+        let key = normalizePositionKey(raw)
+        switch key {
+        case "QB": return Color(hex: "FF2A6D") // magenta
+        case "RB": return Color(hex: "00BFA5") // teal
+        case "WR": return Color(hex: "2E7BFF") // blue
+        case "TE": return Color(hex: "F59E0B") // amber
+        case "K", "PK": return Color(hex: "A855F7") // violet
+        case "DEF", "DST", "D/ST": return Color(hex: "16A34A") // green
+        case "DT", "DL": return Color(hex: "EF4444") // red
+        case "DE": return Color(hex: "06B6D4") // cyan
+        case "LB": return Color(hex: "4F46E5") // indigo
+        case "CB", "DB": return Color(hex: "EAB308") // gold
+        case "S", "SS", "FS": return Color(hex: "84CC16") // lime
+        case "FLEX", "WR/RB", "RB/WR", "W/R", "WR/TE", "RB/TE", "W/R/T", "RB/WR/TE", "WR/RB/TE":
+            return Color(hex: "0EA5E9") // sky
+        case "SUPERFLEX", "Q/W/R/T", "SUPER_FLEX", "SF":
+            return Color(hex: "F97316") // orange
+        case "BN", "BENCH", "IR", "TAXI":
+            return muted
+        default:
+            if key.contains("QB") { return Color(hex: "FF2A6D") }
+            if key.contains("FLEX") { return Color(hex: "0EA5E9") }
+            return muted
+        }
+    }
+
+    private static func normalizePositionKey(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    }
+
     static var controlRadius: CGFloat { space(9) }
     /// Shared top inset so tab body content lines up under the nav bar.
     static var tabContentTop: CGFloat { space(12) }

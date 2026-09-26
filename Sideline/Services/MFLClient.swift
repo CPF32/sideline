@@ -255,7 +255,8 @@ actor MFLClient {
         if ttl <= 90 { return .live }
         if ttl <= 7_200 { return .standard }
         if ttl <= 200_000 { return .day }
-        return .week
+        if ttl <= 700_000 { return .week }
+        return .permanent
     }
 
     /// Global (non-league) exports — e.g. `playerProfile`, which only needs `P=` and no `L`.

@@ -137,11 +137,11 @@ function espnSideScore(side: unknown): number {
   const s = side as Record<string, unknown>;
   const live = Number(s.totalPointsLive);
   if (Number.isFinite(live)) return live;
-  const total = Number(s.totalPoints);
-  if (Number.isFinite(total)) return total;
   const roster = s.rosterForCurrentScoringPeriod as Record<string, unknown> | undefined;
   const applied = Number(roster?.appliedStatTotal);
-  return Number.isFinite(applied) ? applied : 0;
+  if (Number.isFinite(applied)) return applied;
+  const total = Number(s.totalPoints);
+  return Number.isFinite(total) ? total : 0;
 }
 
 function espnPlayerLinesFromSide(
@@ -256,8 +256,36 @@ function sleeperSnapshot(
   const oppPlayerLines = (session.oppLivePlayerLines ?? []).slice(0, 10);
   const nflGameLines = (session.nflGameLines ?? []).slice(0, 10);
 
-  const myScore = Number(mine.points ?? 0);
-  const oppScore = Number(opp?.points ?? 0);
+  // Prefer summing starter players_points (so-far) over host `points`, which can be
+  // null mid-week. Only count starters from the matchup payload.
+  const starterIds = Array.isArray(mine.starters)
+    ? (mine.starters as unknown[]).map(String).filter((id) => id && id !== "0")
+    : [];
+  const starterTotal = (row: Record<string, unknown> | null): number | null => {
+    if (!row) return null;
+    const pp = (row.players_points as Record<string, number> | undefined) ?? {};
+    const starters = Array.isArray(row.starters)
+      ? (row.starters as unknown[]).map(String).filter((id) => id && id !== "0")
+      : starterIds;
+    if (starters.length === 0) {
+      const pts = Number(row.points);
+      return Number.isFinite(pts) ? pts : null;
+    }
+    let total = 0;
+    let any = false;
+    for (const id of starters) {
+      if (pp[id] != null && Number.isFinite(Number(pp[id]))) {
+        total += Number(pp[id]);
+        any = true;
+      }
+    }
+    if (any) return total;
+    const pts = Number(row.points);
+    return Number.isFinite(pts) ? pts : null;
+  };
+
+  const myScore = starterTotal(mine) ?? Number(mine.points ?? 0);
+  const oppScore = starterTotal(opp) ?? Number(opp?.points ?? 0);
 
   return {
     myScore,

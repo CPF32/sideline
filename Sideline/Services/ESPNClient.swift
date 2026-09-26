@@ -331,7 +331,8 @@ actor ESPNClient {
         case 17: return "K"
         case 20: return "BE"
         case 21: return "IR"
-        case 23: return "FLEX"
+        // ESPN FLEX is RB/WR/TE — keep eligibility explicit (not a bare "FLEX" label).
+        case 23: return "RB/WR/TE"
         case 24: return "ER"
         default: return "SLOT\(lineupSlotId)"
         }

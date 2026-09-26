@@ -2,13 +2,23 @@ import AVFoundation
 import SwiftUI
 import VisionKit
 
-/// Scans a QR/barcode or on-screen text into an API key field.
+/// Scans a QR/barcode or on-screen text into a secret field (API keys, ESPN cookies, etc.).
 struct APIKeyCameraScanner: UIViewControllerRepresentable {
     var onScan: (String) -> Void
     var onCancel: () -> Void
+    var title: String = "Scan API key"
+    var hint: String = "Point at a QR code or the API key text"
+    /// When true, OCR auto-accepts only key-shaped strings; barcodes always accept.
+    /// Set false for longer cookie values (espn_s2 / SWID).
+    var requireAPIKeyShape: Bool = true
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onScan: onScan, onCancel: onCancel)
+        Coordinator(
+            onScan: onScan,
+            onCancel: onCancel,
+            hint: hint,
+            requireAPIKeyShape: requireAPIKeyShape
+        )
     }
 
     func makeUIViewController(context: Context) -> UIViewController {
@@ -26,7 +36,7 @@ struct APIKeyCameraScanner: UIViewControllerRepresentable {
                 isHighlightingEnabled: true
             )
             scanner.delegate = context.coordinator
-            scanner.title = "Scan API key"
+            scanner.title = title
             context.coordinator.dataScanner = scanner
             context.coordinator.attachChrome(to: scanner)
             return scanner
@@ -35,6 +45,7 @@ struct APIKeyCameraScanner: UIViewControllerRepresentable {
         let fallback = APIKeyQRFallbackController()
         fallback.onScan = { context.coordinator.handleRaw($0) }
         fallback.onCancel = onCancel
+        fallback.deniedMessage = "Camera access is required to scan. Enable it in Settings."
         return fallback
     }
 
@@ -49,13 +60,26 @@ struct APIKeyCameraScanner: UIViewControllerRepresentable {
     final class Coordinator: NSObject, DataScannerViewControllerDelegate {
         let onScan: (String) -> Void
         let onCancel: () -> Void
+        let hint: String
+        let requireAPIKeyShape: Bool
         weak var dataScanner: DataScannerViewController?
         private var didEmit = false
 
-        init(onScan: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+        init(
+            onScan: @escaping (String) -> Void,
+            onCancel: @escaping () -> Void,
+            hint: String,
+            requireAPIKeyShape: Bool
+        ) {
             self.onScan = onScan
             self.onCancel = onCancel
+            self.hint = hint
+            self.requireAPIKeyShape = requireAPIKeyShape
         }
+
+        private var confirmContainer: UIView?
+        private var confirmValueLabel: UILabel?
+        private var pendingValue: String?
 
         func attachChrome(to scanner: DataScannerViewController) {
             let cancel = UIButton(type: .system)
@@ -70,27 +94,106 @@ struct APIKeyCameraScanner: UIViewControllerRepresentable {
                 cancel.trailingAnchor.constraint(equalTo: scanner.view.trailingAnchor, constant: -20)
             ])
 
-            let hint = UILabel()
-            hint.text = "Point at a QR code or the API key text"
-            hint.textColor = .white
-            hint.font = .systemFont(ofSize: 14, weight: .medium)
-            hint.textAlignment = .center
-            hint.translatesAutoresizingMaskIntoConstraints = false
-            scanner.view.addSubview(hint)
+            let hintLabel = UILabel()
+            hintLabel.text = hint
+            hintLabel.textColor = .white
+            hintLabel.font = .systemFont(ofSize: 14, weight: .medium)
+            hintLabel.textAlignment = .center
+            hintLabel.numberOfLines = 2
+            hintLabel.translatesAutoresizingMaskIntoConstraints = false
+            scanner.view.addSubview(hintLabel)
             NSLayoutConstraint.activate([
-                hint.leadingAnchor.constraint(equalTo: scanner.view.leadingAnchor, constant: 24),
-                hint.trailingAnchor.constraint(equalTo: scanner.view.trailingAnchor, constant: -24),
-                hint.bottomAnchor.constraint(equalTo: scanner.view.safeAreaLayoutGuide.bottomAnchor, constant: -28)
+                hintLabel.leadingAnchor.constraint(equalTo: scanner.view.leadingAnchor, constant: 24),
+                hintLabel.trailingAnchor.constraint(equalTo: scanner.view.trailingAnchor, constant: -24),
+                hintLabel.bottomAnchor.constraint(equalTo: scanner.view.safeAreaLayoutGuide.bottomAnchor, constant: -28)
             ])
+
+            setUpConfirmChrome(in: scanner.view)
 
             DispatchQueue.main.async {
                 try? scanner.startScanning()
             }
         }
 
+        private func setUpConfirmChrome(in parent: UIView) {
+            let container = UIView()
+            container.backgroundColor = UIColor.black.withAlphaComponent(0.85)
+            container.layer.cornerRadius = 14
+            container.isHidden = true
+            container.translatesAutoresizingMaskIntoConstraints = false
+
+            let promptLabel = UILabel()
+            promptLabel.text = "Use this value?"
+            promptLabel.textColor = .white
+            promptLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+            promptLabel.translatesAutoresizingMaskIntoConstraints = false
+
+            let valueLabel = UILabel()
+            valueLabel.textColor = .white
+            valueLabel.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
+            valueLabel.numberOfLines = 2
+            valueLabel.lineBreakMode = .byTruncatingMiddle
+            valueLabel.translatesAutoresizingMaskIntoConstraints = false
+            confirmValueLabel = valueLabel
+
+            let useButton = UIButton(type: .system)
+            useButton.setTitle("Use", for: .normal)
+            useButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .bold)
+            useButton.tintColor = .systemGreen
+            useButton.addTarget(self, action: #selector(confirmUseTapped), for: .touchUpInside)
+            useButton.translatesAutoresizingMaskIntoConstraints = false
+
+            let rescanButton = UIButton(type: .system)
+            rescanButton.setTitle("Keep Scanning", for: .normal)
+            rescanButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .medium)
+            rescanButton.tintColor = .white
+            rescanButton.addTarget(self, action: #selector(confirmRescanTapped), for: .touchUpInside)
+            rescanButton.translatesAutoresizingMaskIntoConstraints = false
+
+            let buttonRow = UIStackView(arrangedSubviews: [rescanButton, useButton])
+            buttonRow.axis = .horizontal
+            buttonRow.spacing = 16
+            buttonRow.distribution = .equalSpacing
+            buttonRow.translatesAutoresizingMaskIntoConstraints = false
+
+            let stack = UIStackView(arrangedSubviews: [promptLabel, valueLabel, buttonRow])
+            stack.axis = .vertical
+            stack.spacing = 8
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(stack)
+            NSLayoutConstraint.activate([
+                stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+                stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+                stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
+                stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14)
+            ])
+
+            parent.addSubview(container)
+            NSLayoutConstraint.activate([
+                container.leadingAnchor.constraint(equalTo: parent.leadingAnchor, constant: 24),
+                container.trailingAnchor.constraint(equalTo: parent.trailingAnchor, constant: -24),
+                container.centerYAnchor.constraint(equalTo: parent.centerYAnchor)
+            ])
+            confirmContainer = container
+        }
+
         @objc private func cancelTapped() {
             try? dataScanner?.stopScanning()
             onCancel()
+        }
+
+        @objc private func confirmUseTapped() {
+            guard let value = pendingValue else { return }
+            didEmit = true
+            confirmContainer?.isHidden = true
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            try? dataScanner?.stopScanning()
+            onScan(value)
+        }
+
+        @objc private func confirmRescanTapped() {
+            pendingValue = nil
+            confirmContainer?.isHidden = true
         }
 
         func dataScanner(
@@ -100,10 +203,10 @@ struct APIKeyCameraScanner: UIViewControllerRepresentable {
             switch item {
             case .barcode(let barcode):
                 if let value = barcode.payloadStringValue {
-                    handleRaw(value)
+                    presentCandidate(value)
                 }
             case .text(let text):
-                handleRaw(text.transcript)
+                presentCandidate(text.transcript)
             @unknown default:
                 break
             }
@@ -114,19 +217,21 @@ struct APIKeyCameraScanner: UIViewControllerRepresentable {
             didAdd addedItems: [RecognizedItem],
             allItems: [RecognizedItem]
         ) {
-            guard !didEmit else { return }
+            guard !didEmit, pendingValue == nil else { return }
             for item in addedItems {
                 switch item {
                 case .barcode(let barcode):
                     if let value = barcode.payloadStringValue {
-                        handleRaw(value)
+                        presentCandidate(value)
                         return
                     }
                 case .text(let text):
                     let cleaned = Self.sanitize(text.transcript)
-                    // Prefer barcode auto-accept; for text wait for a key-like string.
-                    if Self.looksLikeAPIKey(cleaned) {
-                        handleRaw(cleaned)
+                    // Surface a key/cookie-shaped candidate for the user to confirm, rather
+                    // than committing it immediately — live OCR fires many times a second and
+                    // can otherwise lock onto the wrong on-screen text.
+                    if shouldAutoAccept(cleaned) {
+                        presentCandidate(cleaned)
                         return
                     }
                 @unknown default:
@@ -135,6 +240,19 @@ struct APIKeyCameraScanner: UIViewControllerRepresentable {
             }
         }
 
+        /// Surfaces a detected value for explicit user confirmation instead of accepting it outright.
+        private func presentCandidate(_ raw: String) {
+            guard !didEmit else { return }
+            let cleaned = Self.sanitize(raw)
+            guard !cleaned.isEmpty else { return }
+            pendingValue = cleaned
+            confirmValueLabel?.text = cleaned
+            confirmContainer?.isHidden = false
+            UISelectionFeedbackGenerator().selectionChanged()
+        }
+
+        /// Used by the QR fallback path (no live highlighting UI), where tap-to-confirm isn't
+        /// available, so the scanned value is accepted directly.
         func handleRaw(_ raw: String) {
             guard !didEmit else { return }
             let cleaned = Self.sanitize(raw)
@@ -143,6 +261,13 @@ struct APIKeyCameraScanner: UIViewControllerRepresentable {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             try? dataScanner?.stopScanning()
             onScan(cleaned)
+        }
+
+        private func shouldAutoAccept(_ value: String) -> Bool {
+            if requireAPIKeyShape {
+                return Self.looksLikeAPIKey(value)
+            }
+            return Self.looksLikeCookieOrSecret(value)
         }
 
         static func sanitize(_ raw: String) -> String {
@@ -159,6 +284,20 @@ struct APIKeyCameraScanner: UIViewControllerRepresentable {
             let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_.=+/"))
             return value.unicodeScalars.allSatisfy { allowed.contains($0) }
         }
+
+        /// ESPN cookies / pasted cookie headers — longer, may include `%`, `{}`, `;`, `=`.
+        static func looksLikeCookieOrSecret(_ value: String) -> Bool {
+            guard value.count >= 8 else { return false }
+            if value.localizedCaseInsensitiveContains("espn_s2")
+                || value.localizedCaseInsensitiveContains("SWID") {
+                return true
+            }
+            // Braced UUID (SWID) or long opaque cookie token.
+            if value.hasPrefix("{"), value.hasSuffix("}"), value.count >= 36 { return true }
+            guard value.count >= 20 else { return false }
+            let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_.=+/%{};:"))
+            return value.unicodeScalars.allSatisfy { allowed.contains($0) }
+        }
     }
 }
 
@@ -167,6 +306,7 @@ struct APIKeyCameraScanner: UIViewControllerRepresentable {
 private final class APIKeyQRFallbackController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
     var onScan: ((String) -> Void)?
     var onCancel: (() -> Void)?
+    var deniedMessage = "Camera access is required to scan an API key. Enable it in Settings."
 
     private let session = AVCaptureSession()
     private var previewLayer: AVCaptureVideoPreviewLayer?
@@ -256,7 +396,7 @@ private final class APIKeyQRFallbackController: UIViewController, AVCaptureMetad
 
     private func showDenied() {
         let label = UILabel()
-        label.text = "Camera access is required to scan an API key. Enable it in Settings."
+        label.text = deniedMessage
         label.textColor = .white
         label.numberOfLines = 0
         label.textAlignment = .center

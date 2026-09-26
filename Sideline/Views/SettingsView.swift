@@ -26,7 +26,7 @@ enum SettingsDestination: String, Hashable, CaseIterable, Identifiable {
         case .apiKey: return "Model API key"
         case .fantasyPros: return "FantasyPros"
         case .oddsAPI: return "Odds API"
-        case .teamGoals: return "Team goals"
+        case .teamGoals: return "Front office"
         case .agentCriteria: return "Agent criteria"
         case .activity: return "Activity"
         case .about: return "About the developer"
@@ -44,7 +44,7 @@ enum SettingsDestination: String, Hashable, CaseIterable, Identifiable {
         case .apiKey: return "key"
         case .fantasyPros: return "chart.line.uptrend.xyaxis"
         case .oddsAPI: return "chart.bar.doc.horizontal"
-        case .teamGoals: return "flag"
+        case .teamGoals: return "building.2"
         case .agentCriteria: return "slider.horizontal.3"
         case .activity: return "list.bullet"
         case .about: return "person"
@@ -61,7 +61,7 @@ struct SettingsView: View {
     @State private var showSignOutConfirm = false
 
     private let rows: [SettingsDestination] = [
-        .league, .model, .apis, .teamGoals, .agentCriteria, .activity, .account, .theme, .about
+        .account, .league, .apis, .model, .teamGoals, .about
     ]
 
     var body: some View {

@@ -16,12 +16,6 @@ struct AnalysisView: View {
                 Group {
                     if !hasKey {
                         emptyKeyState
-                    } else if isLoading && insights.isEmpty {
-                        Text(appState.isViewingHistoricWeek
-                              ? "Loading historic props…"
-                              : "Loading player props…")
-                            .font(BrandTheme.body(14))
-                            .foregroundStyle(BrandTheme.muted)
                     } else {
                         ScrollView {
                             VStack(alignment: .leading, spacing: 0) {
@@ -42,7 +36,11 @@ struct AnalysisView: View {
                                         .padding(.top, BrandTheme.space(16))
                                 }
 
-                                rosterSection
+                                if isLoading && insights.isEmpty {
+                                    propsLoadingSkeleton
+                                } else {
+                                    rosterSection
+                                }
                             }
                             .padding(.bottom, BrandTheme.space(40))
                             .sidelinePullRefreshReader()
@@ -111,10 +109,69 @@ struct AnalysisView: View {
     private var propsSubtitle: String {
         let week = appState.selectedWeek
         let historic = appState.isViewingHistoricWeek ? " · historic" : ""
+        if isLoading && insights.isEmpty {
+            return "Week \(week)\(historic)"
+        }
         if insights.isEmpty {
             return "Week \(week)\(historic) · no props matched"
         }
         return "Week \(week)\(historic) · \(insights.count) players"
+    }
+
+    private var propsLoadingSkeleton: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(0..<5, id: \.self) { index in
+                propsSkeletonBlock
+                if index < 4 {
+                    Divider().overlay(BrandTheme.hairline)
+                }
+            }
+        }
+        .accessibilityLabel("Loading player props")
+    }
+
+    private var propsSkeletonBlock: some View {
+        VStack(alignment: .leading, spacing: BrandTheme.space(12)) {
+            HStack(alignment: .top, spacing: 12) {
+                Text("WR")
+                    .font(BrandTheme.body(12, weight: .semibold))
+                    .foregroundStyle(BrandTheme.muted)
+                    .frame(width: BrandTheme.space(36), alignment: .leading)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Player Name Here")
+                        .font(BrandTheme.body(15, weight: .semibold))
+                        .foregroundStyle(BrandTheme.ink)
+                    Text("TEAM  vs OPP")
+                        .font(BrandTheme.body(12))
+                        .foregroundStyle(BrandTheme.muted)
+                }
+                Spacer(minLength: 8)
+                Text("DraftKings")
+                    .font(BrandTheme.body(11, weight: .semibold))
+                    .foregroundStyle(BrandTheme.ink.opacity(0.55))
+            }
+            VStack(spacing: 0) {
+                ForEach(0..<3, id: \.self) { index in
+                    if index > 0 {
+                        Divider().overlay(BrandTheme.hairline)
+                    }
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text("Rush yards")
+                            .font(BrandTheme.body(14))
+                            .foregroundStyle(BrandTheme.muted)
+                        Spacer(minLength: 8)
+                        Text("O 62.5 (-110)")
+                            .font(BrandTheme.mono(13, weight: .semibold))
+                            .foregroundStyle(BrandTheme.ink)
+                    }
+                    .padding(.vertical, BrandTheme.space(9))
+                }
+            }
+            .padding(.leading, BrandTheme.space(36) + 12)
+        }
+        .padding(.horizontal, BrandTheme.pageGutter)
+        .padding(.vertical, BrandTheme.space(14))
+        .redacted(reason: .placeholder)
     }
 
     private var rosterSection: some View {
@@ -150,7 +207,7 @@ struct AnalysisView: View {
                 HStack(alignment: .top, spacing: 12) {
                     Text(row.player.position)
                         .font(BrandTheme.body(12, weight: .semibold))
-                        .foregroundStyle(BrandTheme.muted)
+                        .foregroundStyle(BrandTheme.positionColor(for: row.player.position))
                         .frame(width: BrandTheme.space(36), alignment: .leading)
 
                     VStack(alignment: .leading, spacing: 3) {
@@ -232,10 +289,10 @@ struct AnalysisView: View {
             return
         }
         isLoading = true
-        appState.isLoadingProps = true
+        appState.beginPropsLoad()
         defer {
             isLoading = false
-            appState.isLoadingProps = false
+            appState.endPropsLoad()
         }
         if force {
             await OddsIntelService.shared.invalidate()

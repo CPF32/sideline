@@ -48,7 +48,8 @@ struct ConnectLeagueHubView: View {
                             } label: {
                                 providerCard(
                                     title: "MyFantasyLeague",
-                                    subtitle: "Sign in · lineups write back on Approve"
+                                    subtitle: "Sign in · lineups write back on Approve",
+                                    provider: .mfl
                                 )
                             }
                             .buttonStyle(.plain)
@@ -58,7 +59,8 @@ struct ConnectLeagueHubView: View {
                             } label: {
                                 providerCard(
                                     title: "Sleeper",
-                                    subtitle: "Username only · read-only sync + player intel"
+                                    subtitle: "Username only · read-only sync + player intel",
+                                    provider: .sleeper
                                 )
                             }
                             .buttonStyle(.plain)
@@ -68,7 +70,8 @@ struct ConnectLeagueHubView: View {
                             } label: {
                                 providerCard(
                                     title: "ESPN",
-                                    subtitle: "League ID · cookies for private leagues · read-only"
+                                    subtitle: "League ID · cookies for private leagues · read-only",
+                                    provider: .espn
                                 )
                             }
                             .buttonStyle(.plain)
@@ -112,13 +115,14 @@ struct ConnectLeagueHubView: View {
             appState.switchActiveLeague(link)
             dismiss()
         } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
+            HStack(alignment: .center, spacing: 12) {
+                ProviderLogoView(provider: link.provider, size: 28)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(link.leagueName)
                         .font(BrandTheme.body(15, weight: .semibold))
                         .foregroundStyle(BrandTheme.ink)
                         .multilineTextAlignment(.leading)
-                    Text("\(link.provider.shortName) · \(link.franchiseName)")
+                    Text(link.franchiseName)
                         .font(BrandTheme.body(12))
                         .foregroundStyle(BrandTheme.muted)
                 }
@@ -144,8 +148,9 @@ struct ConnectLeagueHubView: View {
         .buttonStyle(.plain)
     }
 
-    private func providerCard(title: String, subtitle: String) -> some View {
+    private func providerCard(title: String, subtitle: String, provider: LeagueProvider) -> some View {
         HStack(alignment: .center, spacing: 14) {
+            ProviderLogoView(provider: provider, size: 36)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(BrandTheme.body(16, weight: .semibold))
@@ -174,32 +179,79 @@ struct ConnectLeagueHubView: View {
 
 struct LeagueSwitcherMenu: View {
     @EnvironmentObject private var appState: AppState
-    @State private var showPicker = false
+    @State private var showOptions = false
 
     var body: some View {
         Button {
-            showPicker = true
+            showOptions = true
         } label: {
-            Text(appState.linkedFranchise?.provider.shortName ?? "League")
-                .font(BrandTheme.body(14, weight: .semibold))
-                .foregroundStyle(BrandTheme.ink)
+            if let provider = appState.linkedFranchise?.provider {
+                ProviderLogoView(provider: provider, size: 24)
+            } else {
+                Text("League")
+                    .font(BrandTheme.body(14, weight: .semibold))
+                    .foregroundStyle(BrandTheme.ink)
+            }
         }
         .buttonStyle(.plain)
-        .confirmationDialog("Switch league", isPresented: $showPicker, titleVisibility: .visible) {
-            ForEach(appState.linkedLeagues, id: \.id) { link in
-                Button(dialogLabel(link)) {
-                    appState.switchActiveLeague(link)
+        .accessibilityLabel(accessibilityTitle)
+        .popover(isPresented: $showOptions, attachmentAnchor: .point(.bottom), arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(appState.linkedLeagues, id: \.id) { link in
+                    let active = appState.linkedFranchise?.id == link.id
+                    Button {
+                        appState.switchActiveLeague(link)
+                        showOptions = false
+                    } label: {
+                        HStack(spacing: 10) {
+                            ProviderLogoView(provider: link.provider, size: 22)
+                            Text(link.leagueName)
+                                .font(BrandTheme.body(15, weight: active ? .semibold : .regular))
+                                .foregroundStyle(BrandTheme.ink)
+                                .multilineTextAlignment(.leading)
+                                .lineLimit(2)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                                .fill(active ? BrandTheme.accentWash : Color.clear)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                                .stroke(active ? BrandTheme.accent.opacity(0.55) : Color.clear, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
+
+                Divider()
+                    .padding(.vertical, 2)
+
+                Button {
+                    showOptions = false
+                    appState.showConnect = true
+                } label: {
+                    Text("Add league…")
+                        .font(BrandTheme.body(15, weight: .medium))
+                        .foregroundStyle(BrandTheme.ink)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.plain)
             }
-            Button("Add league…") {
-                appState.showConnect = true
-            }
-            Button("Cancel", role: .cancel) {}
+            .padding(.horizontal, 10)
+            .padding(.vertical, 14)
+            .frame(minWidth: 220)
+            .presentationCompactAdaptation(.popover)
         }
     }
 
-    private func dialogLabel(_ link: LinkedFranchise) -> String {
-        let mark = appState.linkedFranchise?.id == link.id ? "✓ " : ""
-        return "\(mark)\(link.provider.shortName) · \(link.leagueName)"
+    private var accessibilityTitle: String {
+        guard let link = appState.linkedFranchise else { return "Switch league" }
+        return "\(link.provider.shortName) · \(link.leagueName). Switch league"
     }
 }

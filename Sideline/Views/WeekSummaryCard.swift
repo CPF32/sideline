@@ -1,26 +1,58 @@
 import SwiftUI
 import Charts
 
-/// “Summary” control shown above the week picker for historic weeks only.
+/// Compact “Summary” control paired with the week picker on historic weeks.
 struct WeekSummaryLink: View {
     let isGenerating: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
+            HStack(spacing: 4) {
                 if isGenerating {
                     ProgressView()
                         .controlSize(.mini)
+                } else {
+                    Image(systemName: "text.alignleft")
+                        .font(.system(size: 10, weight: .semibold))
                 }
-                Text("Summary")
-                    .font(BrandTheme.body(13, weight: .bold))
-                    .underline(true, color: BrandTheme.ink.opacity(0.35))
+                Text("SUMMARY")
+                    .font(BrandTheme.display(12, weight: .semibold))
             }
-            .foregroundStyle(BrandTheme.ink)
+            .foregroundStyle(BrandTheme.muted)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                    .fill(BrandTheme.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BrandTheme.controlRadius, style: .continuous)
+                            .stroke(BrandTheme.hairline, lineWidth: 1)
+                    )
+            )
         }
         .buttonStyle(.plain)
         .disabled(isGenerating)
+        .accessibilityLabel("Week summary")
+    }
+}
+
+/// Week picker with optional Summary floated above — picker layout position stays fixed.
+struct WeekHeaderControls: View {
+    var showSummary: Bool
+    var isGeneratingSummary: Bool
+    var onSummary: () -> Void
+
+    var body: some View {
+        WeekPickerControl()
+            .overlay(alignment: .topTrailing) {
+                if showSummary {
+                    WeekSummaryLink(isGenerating: isGeneratingSummary, action: onSummary)
+                        .fixedSize()
+                        // Draw above the picker without growing layout (picker stays put).
+                        .offset(y: -(BrandTheme.space(6) + BrandTheme.space(26)))
+                }
+            }
     }
 }
 

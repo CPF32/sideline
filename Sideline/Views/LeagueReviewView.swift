@@ -26,9 +26,13 @@ struct LeagueReviewView: View {
                                 header
                                 Divider().overlay(BrandTheme.hairline)
                                 VStack(alignment: .leading, spacing: 24) {
-                                    standingsSection
-                                    matchupsSection
-                                    transactionsSection
+                                    if showLeagueSkeleton {
+                                        leagueLoadingSkeleton
+                                    } else {
+                                        standingsSection
+                                        matchupsSection
+                                        transactionsSection
+                                    }
                                 }
                                 .padding(.horizontal, BrandTheme.pageGutter)
                                 .padding(.top, BrandTheme.space(20))
@@ -78,6 +82,77 @@ struct LeagueReviewView: View {
         }
     }
 
+    private var showLeagueSkeleton: Bool {
+        appState.isLoadingLeague && appState.leagueReview == nil
+    }
+
+    private var leagueLoadingSkeleton: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            section("Standings") {
+                ForEach(0..<8, id: \.self) { _ in
+                    HStack(spacing: 8) {
+                        Text("12")
+                            .font(BrandTheme.mono(13, weight: .semibold))
+                            .foregroundStyle(BrandTheme.muted)
+                            .frame(width: BrandTheme.space(22), alignment: .leading)
+                        Color.clear.frame(width: BrandTheme.space(36), height: 1)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Team Name Here")
+                                .font(BrandTheme.body(14, weight: .semibold))
+                                .foregroundStyle(BrandTheme.ink)
+                            Text("0-0-0")
+                                .font(BrandTheme.body(12))
+                                .foregroundStyle(BrandTheme.muted)
+                        }
+                        Spacer(minLength: 8)
+                        Text("000.0")
+                            .font(BrandTheme.mono(13, weight: .medium))
+                            .foregroundStyle(BrandTheme.ink)
+                    }
+                    .padding(.horizontal, BrandTheme.space(10))
+                    .padding(.vertical, BrandTheme.space(10))
+                    .redacted(reason: .placeholder)
+                }
+            }
+
+            section("Week \(appState.selectedWeek) matchups") {
+                ForEach(0..<4, id: \.self) { _ in
+                    VStack(spacing: 6) {
+                        matchupSide(name: "Home Team Name", score: 100.0, leading: true)
+                        matchupSide(name: "Away Team Name", score: 90.0, leading: false)
+                    }
+                    .padding(.vertical, BrandTheme.space(10))
+                    .redacted(reason: .placeholder)
+                    Divider().overlay(BrandTheme.hairline)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("TRANSACTIONS")
+                    .font(BrandTheme.display(12, weight: .semibold))
+                    .tracking(1)
+                    .foregroundStyle(BrandTheme.muted)
+                ForEach(0..<4, id: \.self) { _ in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("WAIVER")
+                            .font(BrandTheme.display(10, weight: .semibold))
+                            .foregroundStyle(BrandTheme.muted)
+                        Text("Franchise Name")
+                            .font(BrandTheme.body(13, weight: .semibold))
+                            .foregroundStyle(BrandTheme.ink)
+                        Text("Added Player / Dropped Player")
+                            .font(BrandTheme.body(13))
+                            .foregroundStyle(BrandTheme.muted)
+                    }
+                    .padding(.vertical, BrandTheme.space(8))
+                    .redacted(reason: .placeholder)
+                    Divider().overlay(BrandTheme.hairline)
+                }
+            }
+        }
+        .accessibilityLabel("Loading league")
+    }
+
     private var header: some View {
         LeaguePageHeader(
             leagueName: appState.linkedFranchise?.leagueName ?? "League",
@@ -89,16 +164,11 @@ struct LeagueReviewView: View {
 
     @ViewBuilder
     private var headerTrailing: some View {
-        VStack(alignment: .trailing, spacing: 4) {
-            if appState.isViewingHistoricWeek {
-                WeekSummaryLink(isGenerating: appState.isGeneratingLeagueSummary) {
-                    showWeekSummary = true
-                }
-            }
-            HStack(spacing: 10) {
-                WeekPickerControl()
-            }
-        }
+        WeekHeaderControls(
+            showSummary: appState.isViewingHistoricWeek,
+            isGeneratingSummary: appState.isGeneratingLeagueSummary,
+            onSummary: { showWeekSummary = true }
+        )
     }
 
     private var standingsSection: some View {
@@ -381,7 +451,7 @@ private enum TransactionTypeFilter: String, Identifiable, Hashable {
 
     static func bucket(for raw: String) -> TransactionTypeFilter {
         let t = raw.uppercased()
-        if t.contains("FREE_AGENT") || t == "FA" { return .freeAgent }
+        if t.contains("FREE_AGENT") || t.contains("FREEAGENT") || t == "FA" { return .freeAgent }
         if t.contains("WAIVER") { return .waiver }
         if t.contains("TRADE") { return .trade }
         if t == "IR" || t.contains("INJURED") { return .ir }

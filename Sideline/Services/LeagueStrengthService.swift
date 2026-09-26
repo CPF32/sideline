@@ -250,7 +250,7 @@ enum LeagueStrengthService {
         }
         for slot in slots {
             let name = slot.name.uppercased()
-            if name.contains("/") { continue } // flex — counted via discrete positions
+            if LeagueRules.isFlexSlotName(name) { continue } // flex — counted via discrete positions
             let pos = normalizePos(name)
             needs[pos, default: 0] += max(slot.min, slot.max)
         }

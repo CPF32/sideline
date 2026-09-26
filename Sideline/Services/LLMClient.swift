@@ -142,12 +142,12 @@ struct LLMClient {
     private func openAICompatible(system: String, user: String, jsonMode: Bool) async throws -> String {
         var body: [String: Any] = [
             "model": model,
-            "temperature": 0.2,
             "messages": [
                 ["role": "system", "content": system],
                 ["role": "user", "content": user]
             ]
         ]
+        applyTemperature(0.2, to: &body)
         if jsonMode {
             body["response_format"] = ["type": "json_object"]
         }
@@ -163,9 +163,9 @@ struct LLMClient {
         apiMessages.append(contentsOf: messages)
         var body: [String: Any] = [
             "model": model,
-            "temperature": 0.3,
             "messages": apiMessages
         ]
+        applyTemperature(0.3, to: &body)
         if let tools, !tools.isEmpty {
             body["tools"] = tools
             body["tool_choice"] = "auto"
@@ -202,6 +202,22 @@ struct LLMClient {
         return AgentChatToolkit.TurnResult(assistantText: content, toolCalls: calls)
     }
 
+    /// Reasoning models (o1/o3/o4/gpt-5) only accept the default temperature (1).
+    /// Sending 0.2/0.3 returns 400 unsupported_value — omit the field instead.
+    private func applyTemperature(_ value: Double, to body: inout [String: Any]) {
+        guard supportsCustomTemperature else { return }
+        body["temperature"] = value
+    }
+
+    private var supportsCustomTemperature: Bool {
+        let id = model.lowercased()
+        // OpenRouter ids look like "openai/gpt-5-mini" — strip the provider prefix.
+        let bare = id.split(separator: "/").last.map(String.init) ?? id
+        if bare.hasPrefix("o1") || bare.hasPrefix("o3") || bare.hasPrefix("o4") { return false }
+        if bare.hasPrefix("gpt-5") { return false }
+        return true
+    }
+
     private func openAIRequest(body: [String: Any]) async throws -> String {
         let data = try await openAIRequestData(body: body)
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -214,6 +230,17 @@ struct LLMClient {
     }
 
     private func openAIRequestData(body: [String: Any]) async throws -> Data {
+        do {
+            return try await openAIRequestDataOnce(body: body)
+        } catch LLMClientError.http(_, let message) where Self.isTemperatureRejection(message) {
+            // Reasoning models only accept temperature 1 — retry silently instead of surfacing the error.
+            var retry = body
+            retry["temperature"] = 1
+            return try await openAIRequestDataOnce(body: retry)
+        }
+    }
+
+    private func openAIRequestDataOnce(body: [String: Any]) async throws -> Data {
         var request = URLRequest(url: openAIBaseURL)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -226,6 +253,12 @@ struct LLMClient {
         let (data, response) = try await URLSession.shared.data(for: request)
         try throwIfNeeded(response, data: data)
         return data
+    }
+
+    private static func isTemperatureRejection(_ message: String) -> Bool {
+        let lower = message.lowercased()
+        return lower.contains("temperature")
+            && (lower.contains("unsupported") || lower.contains("does not support") || lower.contains("only the default"))
     }
 
     private func anthropic(

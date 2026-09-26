@@ -29,203 +29,22 @@ ClangStatCache /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefaul
     cd /Users/christopherfarish/Desktop/sideline_ai/Sideline.xcodeproj
     /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -o /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/SDKStatCaches.noindex/iphonesimulator26.2-23C53-7d00a8b37fbd7999ea79df8ebc024bf0.sdkstatcache
 
-SwiftDriver Sideline normal arm64 com.apple.xcode.tools.swift.compiler (in target 'Sideline' from project 'Sideline')
+Copy /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/PlugIns/SidelineLiveActivity.appex /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/SidelineLiveActivity.appex (in target 'Sideline' from project 'Sideline')
     cd /Users/christopherfarish/Desktop/sideline_ai
-    builtin-SwiftDriver -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name Sideline -Onone -enforce-exclusivity\=checked @/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator -F /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator -c -j10 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/SDKStatCaches.noindex/iphonesimulator26.2-23C53-7d00a8b37fbd7999ea79df8ebc024bf0.sdkstatcache -output-file-map /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/ModuleCache.noindex -sdk-module-cache-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline_const_extract_protocols.json -Xcc -iquote -Xcc /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Sideline-generated-files.hmap -Xcc -I/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Sideline-own-target-headers.hmap -Xcc -I/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Sideline-all-target-headers.hmap -Xcc -iquote -Xcc /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Sideline-project-headers.hmap -Xcc -I/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/include -Xcc -I/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/DerivedSources-normal/arm64 -Xcc -I/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/DerivedSources/arm64 -Xcc -I/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline-Swift.h -working-directory /Users/christopherfarish/Desktop/sideline_ai -experimental-emit-module-separately -disable-cmo
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks -remove-static-executable /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/SidelineLiveActivity.appex /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/PlugIns
 
-SwiftEmitModule normal arm64 Emitting\ module\ for\ Sideline (in target 'Sideline' from project 'Sideline')
-
-EmitSwiftModule normal arm64 (in target 'Sideline' from project 'Sideline')
+ProcessInfoPlistFile /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/Info.plist /Users/christopherfarish/Desktop/sideline_ai/Sideline/Info.plist (in target 'Sideline' from project 'Sideline')
     cd /Users/christopherfarish/Desktop/sideline_ai
-    
-
-SwiftCompile normal arm64 Compiling\ OddsAPIClient.swift /Users/christopherfarish/Desktop/sideline_ai/Sideline/Services/OddsAPIClient.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 /Users/christopherfarish/Desktop/sideline_ai/Sideline/Services/OddsAPIClient.swift (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    
-
-SwiftCompile normal arm64 Compiling\ SettingsDetailPages.swift /Users/christopherfarish/Desktop/sideline_ai/Sideline/Views/SettingsDetailPages.swift (in target 'Sideline' from project 'Sideline')
-SwiftCompile normal arm64 /Users/christopherfarish/Desktop/sideline_ai/Sideline/Views/SettingsDetailPages.swift (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    
-
-SwiftCompile normal arm64 Compiling\ ScreenshotDemo.swift /Users/christopherfarish/Desktop/sideline_ai/Sideline/Services/ScreenshotDemo.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 /Users/christopherfarish/Desktop/sideline_ai/Sideline/Services/ScreenshotDemo.swift (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    
-
-SwiftCompile normal arm64 Compiling\ AppState.swift /Users/christopherfarish/Desktop/sideline_ai/Sideline/Services/AppState.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 /Users/christopherfarish/Desktop/sideline_ai/Sideline/Services/AppState.swift (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    
-/Users/christopherfarish/Desktop/sideline_ai/Sideline/Services/AppState.swift:1039:40: warning: result of call to 'submitLineup(host:season:leagueId:franchiseId:week:starterIds:comments:)' is unused
-            try await MFLClient.shared.submitLineup(
-                                       ^           ~
-
-SwiftCompile normal arm64 Compiling\ KeychainStore.swift /Users/christopherfarish/Desktop/sideline_ai/Sideline/Services/KeychainStore.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 /Users/christopherfarish/Desktop/sideline_ai/Sideline/Services/KeychainStore.swift (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    
-
-SwiftDriverJobDiscovery normal arm64 Compiling ScreenshotDemo.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftDriverJobDiscovery normal arm64 Compiling KeychainStore.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 Compiling\ ConnectLeagueHubView.swift /Users/christopherfarish/Desktop/sideline_ai/Sideline/Views/ConnectLeagueHubView.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 /Users/christopherfarish/Desktop/sideline_ai/Sideline/Views/ConnectLeagueHubView.swift (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    
-
-SwiftCompile normal arm64 Compiling\ SidelineApp.swift /Users/christopherfarish/Desktop/sideline_ai/Sideline/SidelineApp.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 /Users/christopherfarish/Desktop/sideline_ai/Sideline/SidelineApp.swift (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    
-
-SwiftCompile normal arm64 Compiling\ ConnectMFLView.swift /Users/christopherfarish/Desktop/sideline_ai/Sideline/Views/ConnectMFLView.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 /Users/christopherfarish/Desktop/sideline_ai/Sideline/Views/ConnectMFLView.swift (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    
-
-SwiftCompile normal arm64 Compiling\ RootView.swift /Users/christopherfarish/Desktop/sideline_ai/Sideline/Views/RootView.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 /Users/christopherfarish/Desktop/sideline_ai/Sideline/Views/RootView.swift (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    
-
-SwiftCompile normal arm64 Compiling\ AppleAuthService.swift /Users/christopherfarish/Desktop/sideline_ai/Sideline/Services/AppleAuthService.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 /Users/christopherfarish/Desktop/sideline_ai/Sideline/Services/AppleAuthService.swift (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    
-
-SwiftCompile normal arm64 Compiling\ LLMSettingsStore.swift /Users/christopherfarish/Desktop/sideline_ai/Sideline/Services/LLMSettingsStore.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 /Users/christopherfarish/Desktop/sideline_ai/Sideline/Services/LLMSettingsStore.swift (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    
-
-SwiftCompile normal arm64 Compiling\ ConnectSleeperView.swift /Users/christopherfarish/Desktop/sideline_ai/Sideline/Views/ConnectSleeperView.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 /Users/christopherfarish/Desktop/sideline_ai/Sideline/Views/ConnectSleeperView.swift (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    
-
-SwiftDriverJobDiscovery normal arm64 Compiling OddsAPIClient.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 Compiling\ MFLClient.swift /Users/christopherfarish/Desktop/sideline_ai/Sideline/Services/MFLClient.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 /Users/christopherfarish/Desktop/sideline_ai/Sideline/Services/MFLClient.swift (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    
-
-SwiftDriverJobDiscovery normal arm64 Compiling RootView.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 Compiling\ SettingsView.swift /Users/christopherfarish/Desktop/sideline_ai/Sideline/Views/SettingsView.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 /Users/christopherfarish/Desktop/sideline_ai/Sideline/Views/SettingsView.swift (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    
-
-SwiftDriverJobDiscovery normal arm64 Compiling AppleAuthService.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 Compiling\ LiveActivityManager.swift /Users/christopherfarish/Desktop/sideline_ai/Sideline/Services/LiveActivityManager.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 /Users/christopherfarish/Desktop/sideline_ai/Sideline/Services/LiveActivityManager.swift (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    
-
-SwiftDriverJobDiscovery normal arm64 Compiling SidelineApp.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 Compiling\ MainTabView.swift /Users/christopherfarish/Desktop/sideline_ai/Sideline/Views/MainTabView.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 /Users/christopherfarish/Desktop/sideline_ai/Sideline/Views/MainTabView.swift (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    
-
-SwiftDriverJobDiscovery normal arm64 Compiling LLMSettingsStore.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 Compiling\ FantasyProsClient.swift /Users/christopherfarish/Desktop/sideline_ai/Sideline/Services/FantasyProsClient.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftCompile normal arm64 /Users/christopherfarish/Desktop/sideline_ai/Sideline/Services/FantasyProsClient.swift (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    
-
-SwiftDriverJobDiscovery normal arm64 Compiling ConnectLeagueHubView.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftDriverJobDiscovery normal arm64 Compiling ConnectMFLView.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftDriverJobDiscovery normal arm64 Compiling ConnectSleeperView.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftDriverJobDiscovery normal arm64 Compiling MFLClient.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftDriverJobDiscovery normal arm64 Compiling MainTabView.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftDriverJobDiscovery normal arm64 Compiling SettingsView.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftDriverJobDiscovery normal arm64 Emitting module for Sideline (in target 'Sideline' from project 'Sideline')
-
-SwiftDriver\ Compilation\ Requirements Sideline normal arm64 com.apple.xcode.tools.swift.compiler (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    builtin-Swift-Compilation-Requirements -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name Sideline -Onone -enforce-exclusivity\=checked @/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator -F /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator -c -j10 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/SDKStatCaches.noindex/iphonesimulator26.2-23C53-7d00a8b37fbd7999ea79df8ebc024bf0.sdkstatcache -output-file-map /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/ModuleCache.noindex -sdk-module-cache-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline_const_extract_protocols.json -Xcc -iquote -Xcc /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Sideline-generated-files.hmap -Xcc -I/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Sideline-own-target-headers.hmap -Xcc -I/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Sideline-all-target-headers.hmap -Xcc -iquote -Xcc /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Sideline-project-headers.hmap -Xcc -I/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/include -Xcc -I/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/DerivedSources-normal/arm64 -Xcc -I/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/DerivedSources/arm64 -Xcc -I/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline-Swift.h -working-directory /Users/christopherfarish/Desktop/sideline_ai -experimental-emit-module-separately -disable-cmo
-
-Copy /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline.swiftsourceinfo (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline.swiftsourceinfo /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo
-
-Copy /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.swiftmodule/arm64-apple-ios-simulator.swiftmodule /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline.swiftmodule (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline.swiftmodule /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.swiftmodule/arm64-apple-ios-simulator.swiftmodule
-
-Copy /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.swiftmodule/arm64-apple-ios-simulator.swiftdoc /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline.swiftdoc (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline.swiftdoc /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.swiftmodule/arm64-apple-ios-simulator.swiftdoc
-
-Copy /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.swiftmodule/arm64-apple-ios-simulator.abi.json /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline.abi.json (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline.abi.json /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.swiftmodule/arm64-apple-ios-simulator.abi.json
-
-SwiftDriverJobDiscovery normal arm64 Compiling LiveActivityManager.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftDriverJobDiscovery normal arm64 Compiling FantasyProsClient.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftDriverJobDiscovery normal arm64 Compiling AppState.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftDriverJobDiscovery normal arm64 Compiling SettingsDetailPages.swift (in target 'Sideline' from project 'Sideline')
-
-SwiftDriver\ Compilation Sideline normal arm64 com.apple.xcode.tools.swift.compiler (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    builtin-Swift-Compilation -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name Sideline -Onone -enforce-exclusivity\=checked @/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator -F /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator -c -j10 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/SDKStatCaches.noindex/iphonesimulator26.2-23C53-7d00a8b37fbd7999ea79df8ebc024bf0.sdkstatcache -output-file-map /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/ModuleCache.noindex -sdk-module-cache-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline_const_extract_protocols.json -Xcc -iquote -Xcc /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Sideline-generated-files.hmap -Xcc -I/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Sideline-own-target-headers.hmap -Xcc -I/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Sideline-all-target-headers.hmap -Xcc -iquote -Xcc /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Sideline-project-headers.hmap -Xcc -I/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/include -Xcc -I/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/DerivedSources-normal/arm64 -Xcc -I/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/DerivedSources/arm64 -Xcc -I/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline-Swift.h -working-directory /Users/christopherfarish/Desktop/sideline_ai -experimental-emit-module-separately -disable-cmo
-
-Ld /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/Sideline.debug.dylib normal (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -dynamiclib -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -O0 -L/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -L/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator -F/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -F/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator -filelist /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline.LinkFileList -install_name @rpath/Sideline.debug.dylib -Xlinker -rpath -Xlinker /usr/lib/swift -Xlinker -rpath -Xlinker @executable_path/Frameworks -dead_strip -Xlinker -object_path_lto -Xlinker /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -Xlinker -dependency_info -Xlinker /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline_dependency_info.dat -fobjc-link-runtime -L/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline.swiftmodule @/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline-linker-args.resp -Xlinker -alias -Xlinker _main -Xlinker ___debug_main_executable_dylib_entry_point -o /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/Sideline.debug.dylib
-
-ConstructStubExecutorLinkFileList /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Sideline-ExecutorLinkFileList-normal-arm64.txt (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    construct-stub-executor-link-file-list /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/Sideline.debug.dylib /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libPreviewsJITStubExecutor_no_swift_entry_point.a /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libPreviewsJITStubExecutor.a --output /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Sideline-ExecutorLinkFileList-normal-arm64.txt
-note: Using stub executor library with Swift entry point. (in target 'Sideline' from project 'Sideline')
-
-Ld /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/Sideline normal (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -O0 -L/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator -F/Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator -Xlinker -rpath -Xlinker @executable_path -Xlinker -rpath -Xlinker @executable_path/Frameworks -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -e ___debug_blank_executor_main -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __debug_dylib -Xlinker /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Sideline-DebugDylibPath-normal-arm64.txt -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __debug_instlnm -Xlinker /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Sideline-DebugDylibInstallName-normal-arm64.txt -Xlinker -filelist -Xlinker /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Sideline-ExecutorLinkFileList-normal-arm64.txt /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/Sideline.debug.dylib -o /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/Sideline
-
-ExtractAppIntentsMetadata (in target 'Sideline' from project 'Sideline')
-    cd /Users/christopherfarish/Desktop/sideline_ai
-    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --module-name Sideline --sdk-root /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk --xcode-version 17C52 --platform-family iOS --deployment-target 17.0 --bundle-identifier com.cpf32.sideline --output /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app --target-triple arm64-apple-ios17.0-simulator --binary-file /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/Sideline --dependency-file /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline_dependency_info.dat --stringsdata-file /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline.SwiftFileList --metadata-file-list /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Sideline.DependencyMetadataFileList --static-metadata-file-list /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Sideline.DependencyStaticMetadataFileList --swift-const-vals-list /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/Objects-normal/arm64/Sideline.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
-2026-09-24 07:44:02.561 appintentsmetadataprocessor[49394:126721609] Starting appintentsmetadataprocessor export
-2026-09-24 07:44:02.562 appintentsmetadataprocessor[49394:126721609] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+    builtin-infoPlistUtility /Users/christopherfarish/Desktop/sideline_ai/Sideline/Info.plist -producttype com.apple.product-type.application -genpkginfo /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/PkgInfo -expandbuildsettings -format binary -platform iphonesimulator -additionalcontentfile /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/assetcatalog_generated_info.plist -scanforprivacyfile /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/PlugIns/SidelineLiveActivity.appex -o /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/Info.plist
 
 CopySwiftLibs /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app (in target 'Sideline' from project 'Sideline')
     cd /Users/christopherfarish/Desktop/sideline_ai
     builtin-swiftStdLibTool --copy --verbose --scan-executable /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/Sideline.debug.dylib --scan-folder /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/Frameworks --scan-folder /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/PlugIns --scan-folder /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/SystemExtensions --scan-folder /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/Extensions --platform iphonesimulator --toolchain /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/Frameworks --strip-bitcode --strip-bitcode-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Intermediates.noindex/Sideline.build/Debug-iphonesimulator/Sideline.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os
 Ignoring --strip-bitcode because --sign was not passed
+
+ValidateEmbeddedBinary /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/PlugIns/SidelineLiveActivity.appex (in target 'Sideline' from project 'Sideline')
+    cd /Users/christopherfarish/Desktop/sideline_ai
+    /Applications/Xcode.app/Contents/Developer/usr/bin/embeddedBinaryValidationUtility /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/PlugIns/SidelineLiveActivity.appex -info-plist-path /Users/christopherfarish/Desktop/sideline_ai/.screenshot-derived-data/Build/Products/Debug-iphonesimulator/Sideline.app/Info.plist
 
 ** BUILD SUCCEEDED **
 

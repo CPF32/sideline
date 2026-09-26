@@ -17,7 +17,7 @@ enum RosterPositionGrouping {
     ]
 
     /// Discrete position keys in the order defined by league starter slots.
-    /// Flex (`RB/WR/TE`) is skipped here — callers insert `TIEBREAK` / `FLEX` from slot order.
+    /// Flex slots are skipped here — callers insert `TIEBREAK` / `FLEX` from slot order.
     static func displayPositionOrder(rules: LeagueRules?) -> [String] {
         guard let rules, !rules.starterSlots.isEmpty else {
             return positionOrder
@@ -25,9 +25,8 @@ enum RosterPositionGrouping {
         var order: [String] = []
         var seen = Set<String>()
         for slot in rules.starterSlots {
-            let name = normalizePos(slot.name)
-            guard !name.contains("/") else { continue }
-            let key = bucketKey(for: name)
+            guard !LeagueRules.isFlexSlotName(slot.name) else { continue }
+            let key = bucketKey(for: slot.name)
             if seen.insert(key).inserted {
                 order.append(key)
             }
@@ -51,13 +50,12 @@ enum RosterPositionGrouping {
         if let rules, !rules.starterSlots.isEmpty {
             // Preserve host slot order (incl. where flex / tiebreak sits).
             for slot in rules.starterSlots {
-                let name = normalizePos(slot.name)
-                if name.contains("/") {
+                if LeagueRules.isFlexSlotName(slot.name) {
                     if added.insert("TIEBREAK").inserted {
                         keysInOrder.append("TIEBREAK")
                     }
                 } else {
-                    let key = bucketKey(for: name)
+                    let key = bucketKey(for: slot.name)
                     if added.insert(key).inserted {
                         keysInOrder.append(key)
                     }
@@ -75,7 +73,7 @@ enum RosterPositionGrouping {
             let p = normalizePos(player.position)
             let key = bucketKey(for: p)
             return !added.contains(key)
-                && (flexPositions.contains(p) || p.contains("/") || p == "FLEX" || p == "OP" || p == "OFF")
+                && (flexPositions.contains(p) || LeagueRules.isFlexSlotName(p))
         }
         if !flexOnlyPlayers.isEmpty {
             buckets["TIEBREAK"] = flexOnlyPlayers.sorted {
@@ -115,7 +113,17 @@ enum RosterPositionGrouping {
 
     /// Flat starter list in league-rules position order (Team roster slide).
     static func startersInDisplayOrder(_ players: [RosterPlayer], rules: LeagueRules? = nil) -> [RosterPlayer] {
-        benchGroups(players: players, rules: rules)
+        // Prefer host lineup-slot order when every starter carries a slot (e.g. ESPN).
+        if players.allSatisfy({ ($0.lineupSlot ?? "").isEmpty == false }) {
+            let rank = slotRankIndex(rules: rules)
+            return players.sorted { a, b in
+                let ra = rank[LeagueRules.slotTemplateKey(a.lineupSlot ?? "")] ?? 999
+                let rb = rank[LeagueRules.slotTemplateKey(b.lineupSlot ?? "")] ?? 999
+                if ra != rb { return ra < rb }
+                return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+            }
+        }
+        return benchGroups(players: players, rules: rules)
             .filter { $0.key != "TIEBREAK" && !$0.players.isEmpty }
             .flatMap(\.players)
     }
@@ -135,9 +143,19 @@ enum RosterPositionGrouping {
     ) -> [MatchupSlotPair] {
         let template = matchupSlotTemplate(rules: rules, mine: mine, opponent: opponent)
         let order = displayPositionOrder(rules: rules)
-        var mineQueues = positionQueues(mine, rules: rules)
-        var oppQueues = positionQueues(opponent, rules: rules)
         let flexEligible = flexEligiblePositions(rules: rules)
+
+        // Prefer host lineup slots when present so a TE in FLEX stays on the FLEX row.
+        let useLineupSlots = (mine + opponent).contains { !($0.lineupSlot ?? "").isEmpty }
+        var mineQueues: [String: [RosterPlayer]]
+        var oppQueues: [String: [RosterPlayer]]
+        if useLineupSlots {
+            mineQueues = lineupSlotQueues(mine)
+            oppQueues = lineupSlotQueues(opponent)
+        } else {
+            mineQueues = positionQueues(mine, rules: rules)
+            oppQueues = positionQueues(opponent, rules: rules)
+        }
 
         var pairs: [MatchupSlotPair] = []
         var index = 0
@@ -146,8 +164,15 @@ enum RosterPositionGrouping {
             let minePlayer: RosterPlayer?
             let oppPlayer: RosterPlayer?
             if slot == "FLEX" {
-                minePlayer = dequeueFlex(from: &mineQueues, eligible: flexEligible, order: order)
-                oppPlayer = dequeueFlex(from: &oppQueues, eligible: flexEligible, order: order)
+                if useLineupSlots {
+                    minePlayer = dequeue(from: &mineQueues, position: "FLEX")
+                        ?? dequeueFlex(from: &mineQueues, eligible: flexEligible, order: order)
+                    oppPlayer = dequeue(from: &oppQueues, position: "FLEX")
+                        ?? dequeueFlex(from: &oppQueues, eligible: flexEligible, order: order)
+                } else {
+                    minePlayer = dequeueFlex(from: &mineQueues, eligible: flexEligible, order: order)
+                    oppPlayer = dequeueFlex(from: &oppQueues, eligible: flexEligible, order: order)
+                }
             } else {
                 minePlayer = dequeue(from: &mineQueues, position: slot)
                 oppPlayer = dequeue(from: &oppQueues, position: slot)
@@ -156,7 +181,7 @@ enum RosterPositionGrouping {
             pairs.append(
                 MatchupSlotPair(
                     id: index,
-                    slotLabel: slot,
+                    slotLabel: LeagueRules.displaySlotLabel(slot),
                     mine: minePlayer,
                     opponent: oppPlayer
                 )
@@ -169,11 +194,15 @@ enum RosterPositionGrouping {
         if !leftoversMine.isEmpty || !leftoversOpp.isEmpty {
             let extra = zipStartersFallback(mine: leftoversMine, opp: leftoversOpp)
             for pair in extra {
-                let label = bucketKey(for: pair.mine?.position ?? pair.opp?.position ?? "")
+                let raw = pair.mine?.lineupSlot
+                    ?? pair.opp?.lineupSlot
+                    ?? pair.mine?.position
+                    ?? pair.opp?.position
+                    ?? ""
                 pairs.append(
                     MatchupSlotPair(
                         id: index,
-                        slotLabel: label == "OTHER" ? "—" : label,
+                        slotLabel: LeagueRules.displaySlotLabel(raw),
                         mine: pair.mine,
                         opponent: pair.opp
                     )
@@ -194,18 +223,44 @@ enum RosterPositionGrouping {
             var template: [String] = []
             for slot in rules.starterSlots {
                 guard slot.max > 0 else { continue }
-                let name = normalizePos(slot.name)
-                if name.contains("/") {
-                    for _ in 0..<slot.max { template.append("FLEX") }
-                } else {
-                    let key = bucketKey(for: name)
-                    for _ in 0..<slot.max { template.append(key) }
-                }
+                let key = LeagueRules.slotTemplateKey(slot.name)
+                for _ in 0..<slot.max { template.append(key) }
             }
             if !template.isEmpty { return template }
         }
 
-        // No usable rules — size each position to max(mine, opp) count, fallback order.
+        // No usable rules — prefer lineup slots when present, else max(mine, opp) by position.
+        if (mine + opponent).contains(where: { !($0.lineupSlot ?? "").isEmpty }) {
+            let mineCounts = Dictionary(
+                grouping: mine,
+                by: { LeagueRules.slotTemplateKey($0.lineupSlot ?? $0.position) }
+            ).mapValues(\.count)
+            let oppCounts = Dictionary(
+                grouping: opponent,
+                by: { LeagueRules.slotTemplateKey($0.lineupSlot ?? $0.position) }
+            ).mapValues(\.count)
+            var counts: [String: Int] = [:]
+            for key in Set(mineCounts.keys).union(oppCounts.keys) {
+                counts[key] = max(mineCounts[key] ?? 0, oppCounts[key] ?? 0)
+            }
+            var order: [String] = []
+            var seen = Set<String>()
+            for player in mine + opponent {
+                let key = LeagueRules.slotTemplateKey(player.lineupSlot ?? player.position)
+                if seen.insert(key).inserted { order.append(key) }
+            }
+            var template: [String] = []
+            for key in order {
+                guard let n = counts.removeValue(forKey: key), n > 0 else { continue }
+                for _ in 0..<n { template.append(key) }
+            }
+            for key in counts.keys.sorted() {
+                guard let n = counts[key], n > 0 else { continue }
+                for _ in 0..<n { template.append(key) }
+            }
+            return template
+        }
+
         let order = displayPositionOrder(rules: rules)
         let mineCounts = Dictionary(grouping: mine, by: { bucketKey(for: $0.position) }).mapValues(\.count)
         let oppCounts = Dictionary(grouping: opponent, by: { bucketKey(for: $0.position) }).mapValues(\.count)
@@ -225,6 +280,25 @@ enum RosterPositionGrouping {
         return template
     }
 
+    private static func slotRankIndex(rules: LeagueRules?) -> [String: Int] {
+        guard let rules, !rules.starterSlots.isEmpty else { return [:] }
+        var map: [String: Int] = [:]
+        for (idx, slot) in rules.starterSlots.enumerated() {
+            let key = LeagueRules.slotTemplateKey(slot.name)
+            if map[key] == nil { map[key] = idx }
+        }
+        return map
+    }
+
+    private static func lineupSlotQueues(_ players: [RosterPlayer]) -> [String: [RosterPlayer]] {
+        var queues: [String: [RosterPlayer]] = [:]
+        for player in players {
+            let key = LeagueRules.slotTemplateKey(player.lineupSlot ?? player.position)
+            queues[key, default: []].append(player)
+        }
+        return queues
+    }
+
     private static func positionQueues(
         _ players: [RosterPlayer],
         rules: LeagueRules?
@@ -238,10 +312,15 @@ enum RosterPositionGrouping {
     }
 
     private static func dequeue(from queues: inout [String: [RosterPlayer]], position: String) -> RosterPlayer? {
-        let key = bucketKey(for: position)
-        guard var list = queues[key], !list.isEmpty else { return nil }
+        let resolved: String
+        if position == "FLEX" || LeagueRules.isFlexSlotName(position) {
+            resolved = "FLEX"
+        } else {
+            resolved = bucketKey(for: position)
+        }
+        guard var list = queues[resolved], !list.isEmpty else { return nil }
         let player = list.removeFirst()
-        queues[key] = list
+        queues[resolved] = list
         return player
     }
 
@@ -271,7 +350,8 @@ enum RosterPositionGrouping {
     ) -> [RosterPlayer] {
         var out: [RosterPlayer] = []
         var seen = Set<String>()
-        for pos in order {
+        let preferred = ["FLEX"] + order
+        for pos in preferred {
             out.append(contentsOf: queues[pos] ?? [])
             seen.insert(pos)
         }
@@ -295,10 +375,8 @@ enum RosterPositionGrouping {
     private static func flexEligiblePositions(rules: LeagueRules?) -> Set<String> {
         guard let rules else { return [] }
         var set = Set<String>()
-        for slot in rules.starterSlots where slot.name.contains("/") {
-            for part in slot.name.split(separator: "/") {
-                set.insert(normalizePos(String(part)))
-            }
+        for slot in rules.starterSlots where LeagueRules.isFlexSlotName(slot.name) {
+            set.formUnion(LeagueRules.flexEligiblePositions(fromSlotName: slot.name))
         }
         return set
     }
@@ -306,7 +384,7 @@ enum RosterPositionGrouping {
     /// Map a player position into a display bucket.
     private static func bucketKey(for position: String) -> String {
         let p = normalizePos(position)
-        // Common aliases
+        if LeagueRules.isFlexSlotName(p) { return "FLEX" }
         switch p {
         case "K", "PK": return "PK"
         case "DEF", "DF", "D/ST", "DST": return "DEF"
@@ -329,13 +407,12 @@ enum RosterPositionGrouping {
         var hasFlex = false
 
         for slot in rules.starterSlots {
-            let name = normalizePos(slot.name)
-            if name.contains("/") {
+            if LeagueRules.isFlexSlotName(slot.name) {
                 hasFlex = true
                 flexMin += slot.min
                 flexMax += slot.max
             } else {
-                let key = bucketKey(for: name)
+                let key = bucketKey(for: slot.name)
                 let existing = map[key] ?? (0, 0)
                 map[key] = (existing.0 + slot.min, existing.1 + slot.max)
             }
