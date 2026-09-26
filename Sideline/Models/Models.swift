@@ -176,8 +176,11 @@ struct RosterPlayer: Identifiable, Hashable, Codable {
         case "final":
             if let actual = actualPoints { return (actual, .final) }
             return nil
+        case "bye":
+            // Host projections can lag the schedule — bye week is always 0.
+            return (0, .projected)
         default:
-            // upcoming | bye | unknown — projection only; omit if unavailable
+            // upcoming | unknown — projection only; omit if unavailable
             if let proj = projectedPoints { return (proj, .projected) }
             if treatsMissingProjectionAsZero { return (0, .projected) }
             return nil

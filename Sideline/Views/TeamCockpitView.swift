@@ -28,7 +28,7 @@ struct TeamCockpitView: View {
                                 emptyConnect
                             }
                         }
-                        .padding(.bottom, BrandTheme.space(24))
+                        .padding(.bottom, BrandTheme.space(56))
                     }
                     .sidelinePullToRefresh {
                         await appState.syncTeam(revalidatePublic: true)
@@ -42,7 +42,7 @@ struct TeamCockpitView: View {
                                 emptyConnect
                             }
                         }
-                        .padding(.bottom, BrandTheme.space(24))
+                        .padding(.bottom, BrandTheme.space(56))
                     }
                     .sidelinePullToRefresh {
                         await appState.syncTeam(revalidatePublic: true)
@@ -54,7 +54,7 @@ struct TeamCockpitView: View {
                 .id(rosterPagerEpoch)
             }
             .background { SidelineBackground().ignoresSafeArea() }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            .overlay(alignment: .bottom) {
                 VStack(spacing: BrandTheme.space(8)) {
                     if showApprovalsSnackbar {
                         approvalsSnackbar
